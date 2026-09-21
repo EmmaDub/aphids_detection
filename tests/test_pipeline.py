@@ -1,0 +1,151 @@
+# -*- coding: utf-8 -*-
+"""Test hors-ligne de la chaine folds -> COCO -> evaluation unifiee.
+
+Ne demande ni GPU, ni donnees, ni framework de detection : seulement pandas,
+numpy, pyyaml et pycocotools. A lancer avant une campagne pour verifier que la
+plomberie (listes figees, conversion COCO, metriques, CSV) est intacte :
+
+    python tests/test_pipeline.py
+"""
+
+import json
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import aphids_det.config as cfg
+
+tmp = Path(tempfile.mkdtemp())
+cfg.WORK_ROOT = tmp / "work"
+cfg.OUT_DIR = tmp / "out"
+cfg.refresh()
+
+from aphids_det import bench, cocoify, evaluate, folds
+from aphids_det.runners import detr_repo
+
+# --- fixture : fold_0 avec 2 tuiles pucerons + 1 fond, fold_1 pour le train ---
+root = Path(cfg.FOLDS_ROOT)
+for f in (0, 1):
+    (root / f"fold_{f}" / "images").mkdir(parents=True, exist_ok=True)
+    (root / f"fold_{f}" / "labels").mkdir(parents=True, exist_ok=True)
+
+# fold 0 (validation) : t0 a 2 boites (classes 0 et 1), t1 a 1 boite, bg0 rien
+(root / "fold_0" / "images" / "t0.jpg").write_bytes(b"x")
+(root / "fold_0" / "images" / "t1.jpg").write_bytes(b"x")
+(root / "fold_0" / "images" / "bg0.jpg").write_bytes(b"x")
+(root / "fold_0" / "labels" / "t0.txt").write_text(
+    "0 0.5 0.5 0.1 0.1\n1 0.25 0.25 0.05 0.05\n")
+(root / "fold_0" / "labels" / "t1.txt").write_text("0 0.75 0.75 0.2 0.2\n")
+
+# fold 1 (train) : 1 puceron + 10 fonds -> neg_ratio 3 doit en garder 3
+(root / "fold_1" / "images" / "p0.jpg").write_bytes(b"x")
+(root / "fold_1" / "labels" / "p0.txt").write_text("0 0.5 0.5 0.1 0.1\n")
+for i in range(10):
+    (root / "fold_1" / "images" / f"b{i}.jpg").write_bytes(b"x")
+
+cfg.N_CV_FOLDS = 2
+cfg.CV_FOLDS = [0, 1]
+
+# --- 1. liste de train figee + sous-echantillonnage des fonds ---
+npos, nneg = folds.fold_counts(0)
+print(f"[train fold0] pucerons={npos} fonds={nneg}  (attendu 1 / 3)")
+assert (npos, nneg) == (1, 3), (npos, nneg)
+frozen = Path(cfg.SPLITS_FROZEN) / "train_fold0_neg3.txt"
+assert frozen.exists(), "la liste de train doit etre figee sur le Drive"
+assert folds.fold_train_paths(0) == [l for l in frozen.read_text().splitlines() if l]
+
+# --- 2. ground-truth COCO du fold de validation ---
+gt_path = cocoify.val_gt_json(0)
+gt = json.loads(gt_path.read_text())
+print(f"[GT fold0] images={len(gt['images'])} annotations={len(gt['annotations'])} "
+      f"categories={[c['name'] for c in gt['categories']]}")
+assert len(gt["images"]) == 3 and len(gt["annotations"]) == 3
+# boite 0 : centre 0.5,0.5 taille 0.1 -> x=288 y=288 w=64 h=64 en 640 px
+a0 = next(a for a in gt["annotations"] if a["category_id"] == 1)
+assert a0["bbox"] == [288.0, 288.0, 64.0, 64.0], a0["bbox"]
+
+# --- 3. predictions parfaites -> metriques maximales ---
+perfect = [{"image_id": a["image_id"], "category_id": a["category_id"],
+            "bbox": a["bbox"], "score": 0.9} for a in gt["annotations"]]
+dt = Path(cfg.PRED_DIR) / "perfect.json"
+evaluate.write_detections(perfect, dt)
+m = evaluate.evaluate_predictions(gt_path, dt)
+print(f"[parfait] map50={m['map50_macro']} map50-95={m['map5095_macro']} "
+      f"F1_apt={m['Apterous_aphid_F1']} F1_ala={m['Alate_aphid_F1']} "
+      f"TP={m['Apterous_aphid_TP']}/{m['Alate_aphid_TP']}")
+assert m["map50_macro"] == 1.0 and m["map5095_macro"] == 1.0
+assert m["Apterous_aphid_F1"] == 1.0 and m["Alate_aphid_F1"] == 1.0
+assert m["Apterous_aphid_TP"] == 2 and m["Alate_aphid_TP"] == 1
+
+# --- 4. predictions decalees / manquantes -> FP et FN ---
+shifted = [{"image_id": perfect[0]["image_id"], "category_id": 1,
+            "bbox": [0.0, 0.0, 64.0, 64.0], "score": 0.9}]
+dt2 = Path(cfg.PRED_DIR) / "shifted.json"
+evaluate.write_detections(shifted, dt2)
+m2 = evaluate.evaluate_predictions(gt_path, dt2)
+print(f"[decale] TP={m2['Apterous_aphid_TP']} FP={m2['Apterous_aphid_FP']} "
+      f"FN={m2['Apterous_aphid_FN']} / Alate FN={m2['Alate_aphid_FN']}")
+assert m2["Apterous_aphid_TP"] == 0 and m2["Apterous_aphid_FP"] == 1
+assert m2["Apterous_aphid_FN"] == 2 and m2["Alate_aphid_FN"] == 1
+
+# --- 5. detections vides -> zeros, pas d'exception ---
+dt3 = Path(cfg.PRED_DIR) / "empty.json"
+evaluate.write_detections([], dt3)
+m3 = evaluate.evaluate_predictions(gt_path, dt3)
+assert m3["map50_macro"] == 0.0 and m3["Apterous_aphid_FN"] == 2
+print("[vide] ok")
+
+# --- 6. seuil de confiance P/R (conf < 0.25 ignore) ---
+lowconf = [dict(p, score=0.1) for p in perfect]
+dt4 = Path(cfg.PRED_DIR) / "lowconf.json"
+evaluate.write_detections(lowconf, dt4)
+m4 = evaluate.evaluate_predictions(gt_path, dt4)
+print(f"[conf 0.1] map50={m4['map50_macro']} (compte) TP={m4['Apterous_aphid_TP']} (ignore)")
+assert m4["map50_macro"] == 1.0 and m4["Apterous_aphid_TP"] == 0
+
+# --- 7. dataset COCO "coco" (RT-DETR / D-FINE / YOLOX) ---
+ds, p, n = cocoify.build_coco_fold(0, layout="coco", verbose=False)
+tr_dir, tr_json, va_dir, va_json = cocoify.coco_paths(ds, "coco")
+print(f"[layout coco] {tr_json.relative_to(ds)} / {va_json.relative_to(ds)} existent="
+      f"{tr_json.exists()},{va_json.exists()}")
+assert tr_json.exists() and va_json.exists()
+assert json.loads(va_json.read_text())["annotations"] == gt["annotations"]
+
+# --- 8. layout "flat" (RF-DETR) : meme GT que le fichier de reference ---
+ds2, _, _ = cocoify.build_coco_fold(0, layout="flat", verbose=False)
+_, _, _, va_json2 = cocoify.coco_paths(ds2, "flat")
+assert json.loads(va_json2.read_text())["images"] == gt["images"]
+print("[layout flat] GT identique au fichier de reference -> comparaison valide")
+
+# --- 9. reecriture des transforms RT-DETRv2 ---
+ops_v2 = [{"type": "RandomPhotometricDistort", "p": 0.5},
+          {"type": "RandomZoomOut", "fill": 0},
+          {"type": "RandomIoUCrop", "p": 0.8},
+          {"type": "SanitizeBoundingBoxes", "min_size": 1},
+          {"type": "RandomHorizontalFlip"},
+          {"type": "Resize", "size": [640, 640]},
+          {"type": "SanitizeBoundingBoxes", "min_size": 1},
+          {"type": "ConvertPILImage", "dtype": "float32", "scale": True},
+          {"type": "ConvertBoxes", "fmt": "cxcywh", "normalize": True}]
+new_ops, renamed = detr_repo.patch_ops(ops_v2)
+types = [o["type"] for o in new_ops]
+print("[ops RT-DETR]", types)
+assert "RandomPhotometricDistort" not in types
+assert types.index("ColorJitter") == 0
+assert types[types.index("RandomHorizontalFlip") + 1] == "RandomVerticalFlip"
+assert types[-2:] == ["ConvertPILImage", "ConvertBoxes"], "queue du pipeline preservee"
+assert renamed == {"RandomPhotometricDistort": "ColorJitter"}
+
+# --- 10. CSV de resultats : ordre des colonnes et reprise ---
+row = bench.base_row("TEST", "ultralytics", 0, npos, nneg, **m)
+bench.save_rows([row])
+rows, done = bench.load_rows()
+print(f"[CSV] {len(rows)} ligne(s), done={done}")
+assert done == {("TEST", 0)}
+import pandas as pd
+cols = list(pd.read_csv(cfg.CSV_CV).columns)
+assert cols[:6] == ["date", "modele", "framework", "fold", "map50_macro", "map5095_macro"]
+
+print("\nTOUS LES TESTS PASSENT")

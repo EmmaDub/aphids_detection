@@ -1,0 +1,13 @@
+# Dependances du package partage aphids_det (communes a tous les frameworks).
+# Les frameworks eux-memes (ultralytics, rfdetr, RT-DETR, D-FINE, YOLOX) sont
+# installes par le notebook correspondant : leurs dependances sont incompatibles
+# entre elles et ne doivent PAS cohabiter dans le meme runtime.
+numpy
+pandas
+pyyaml
+pillow
+pycocotools
+matplotlib
+openpyxl
+tqdm
+wandb

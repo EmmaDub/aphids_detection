@@ -1,0 +1,33 @@
+# Environnement
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Depots externes clones a l'execution (RT-DETR, D-FINE, YOLOX)
+external/
+repos/
+
+# Poids et sorties
+*.pt
+*.pth
+weights/
+checkpoints/
+runs/
+outputs/
+results/
+work/
+
+# Donnees
+data/
+*.zip
+
+# Notebooks : sorties volumineuses (nbstripout recommande)
+.ipynb_checkpoints/
+
+# Divers
+.idea/
+.vscode/
+.DS_Store
+wandb/
