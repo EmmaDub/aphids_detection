@@ -91,7 +91,15 @@ Avant une campagne, la plomberie se verifie sans GPU ni donnees :
 python tests/test_pipeline.py   # folds, conversion COCO, metriques, CSV
 python tests/test_rebase.py     # relecture des listes figees d'une autre session
 python tests/test_figure.py     # mise en page de la figure d'augmentations
+python tests/test_notebooks.py  # notebooks : JSON, schema, cellules compilables
 ```
+
+Un `.ipynb` edite a la main dans un editeur de texte se casse vite -- un
+guillemet non echappe dans une ligne de code suffit a rendre le fichier illisible
+par Colab, qui annonce un "notebook invalide". Les notebooks sont donc generes
+par `tools/make_notebooks.py` : pour les modifier, editer le generateur et le
+relancer, ou editer dans Colab (qui echappe le JSON correctement).
+`tests/test_notebooks.py` verifie les deux.
 
 **Si un fold parait vide**, `folds.diagnose(fold=0)` affiche en une cellule les
 images et labels presents par fold, et ce que donnent les listes figees du Drive
