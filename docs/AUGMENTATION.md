@@ -79,16 +79,16 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 
 - **Reference** : `translate = 0.1`
 - **Ultralytics (YOLO26n/11n/12n)** : translate=0.1
-- **RF-DETR-N** : pas de parametre dedie
+- **RF-DETR-N** : position aleatoire du recadrage interne (branche B du OneOf)
 - **RT-DETR-R18 / D-FINE-N** : position aleatoire du RandomIoUCrop (recadre 80-100% du cote)
 - **YOLOX-Nano** : translate=0.1 (random_affine)
-- **Ecart** : Chez les DETR la translation n'est pas parametrable : elle vient du tirage de position du recadrage, borne par min_scale=0.8. RF-DETR n'a ni translation ni recadrage parametrables.
+- **Ecart** : Aucun des trois DETR n'expose de translation : elle resulte du tirage de position de leur recadrage interne (borne par min_scale=0.8 chez RT-DETR et D-FINE, non reglable chez RF-DETR). Amplitude du meme ordre que translate=0.1, loi differente.
 
 ### Zoom / echelle
 
 - **Reference** : `scale = 0.25 (facteur [0.75,1.25])`
 - **Ultralytics (YOLO26n/11n/12n)** : scale=0.25
-- **RF-DETR-N** : resize interne, non parametrable
+- **RF-DETR-N** : OneOf : resize direct, ou resize 400/500/600 + recadrage + resize 640 -- variation d'echelle reelle mais non parametrable
 - **RT-DETR-R18 / D-FINE-N** : RandomZoomOut(side_range=(1.0,1.333)) -> x[0.75,1.0] et RandomIoUCrop(min_scale=0.8) -> x[1.0,1.25]
 - **YOLOX-Nano** : mosaic_scale=(0.75,1.25)
 - **Ecart** : Bornes des transforms natives recalees sur la reference (cfg.DETR_GEOM='reference'). Par defaut les depots tirent dans x[0.25,3.3], sans commune mesure avec la reference ; cfg.DETR_GEOM='natif' restaure ce comportement, 'affine' remplace les deux ops par un RandomAffine aux parametres exacts d'Ultralytics. RF-DETR reste sans zoom parametrable.
@@ -142,10 +142,10 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 
 - **Reference** : `conserver >= 20% de l'aire d'origine`
 - **Ultralytics (YOLO26n/11n/12n)** : box_candidates(area_thr=0.2) -- le 0.10 code en dur est patche par le benchmark
-- **RF-DETR-N** : sans objet : flips et couleur ne tronquent aucune boite
+- **RF-DETR-N** : min_visibility=0.2 impose au BboxParams du package (defaut 0.0 : un eclat de boite restait annote)
 - **RT-DETR-R18 / D-FINE-N** : RandomIoUCrop ne garde que les boites dont le CENTRE tombe dans le recadrage : une boite conservee garde donc au moins 25% de son aire, deja plus strict que le seuil
 - **YOLOX-Nano** : filtre ajoute a la sortie de random_affine (seuil 0.2)
-- **Ecart** : Regle harmonisee, par trois mecanismes differents. Sans elle, YOLOX et les DETR gardaient des eclats de boite de 1 px.
+- **Ecart** : Regle harmonisee, par quatre mecanismes differents. Attention : chez RT-DETR et D-FINE le critere natif est le CENTRE de la boite, pas son aire -- une boite visible a plus de 20 % mais dont le centre sort du recadrage est supprimee. Ces deux modeles sont donc plus stricts que la regle, jamais plus laxistes.
 
 ### Remplissage des bords vides
 

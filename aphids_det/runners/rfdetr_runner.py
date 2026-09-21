@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from .. import bench, cocoify, config as cfg, evaluate
-from ..augment import AUG_RFDETR
+from ..augment import AUG_RFDETR, patch_rfdetr_visibility
 from ..folds import fold_val_paths
 
 MODELE = "RF-DETR-N"
@@ -63,6 +63,10 @@ def run_fold(fold):
     """Entraine et evalue RF-DETR Nano sur un fold."""
     from rfdetr import RFDETRNano
 
+    # Seuil de visibilite des boites tronquees par le recadrage interne du
+    # framework (cf. docs/AUGMENTATION.md) : a poser avant la construction
+    # du pipeline d'entrainement.
+    seuil = patch_rfdetr_visibility()
     ds, npos, nneg = cocoify.build_coco_fold(fold, layout="flat")
     batch, accum = cfg.batch_for("rfdetr")
     out_dir = Path(cfg.WORK_ROOT) / "runs" / f"rfdetr_fold{fold}"
@@ -103,8 +107,10 @@ def run_fold(fold):
     row = bench.base_row(MODELE, "rfdetr", fold, npos, nneg,
                          train_time_s=train_time, latency_cpu_ms=round(lat, 3),
                          latency_std_ms=round(lat_std, 3),
-                         notes="early stopping natif (patience "
-                               f"{cfg.PATIENCE})", **stats, **metrics)
+                         notes=f"early stopping natif (patience {cfg.PATIENCE}) ; "
+                               f"visibilite min "
+                               f"{'non applicable' if seuil is None else f'{seuil:.0%}'}",
+                         **stats, **metrics)
     bench.wandb_finish(run, metrics)
     return row
 

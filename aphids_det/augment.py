@@ -114,15 +114,18 @@ _TABLE = [
          ecart="Aucun."),
     dict(effet="Translation", reference="translate = 0.1",
          ultralytics="translate=0.1",
-         rfdetr="pas de parametre dedie",
+         rfdetr="position aleatoire du recadrage interne (branche B du OneOf)",
          detr="position aleatoire du RandomIoUCrop (recadre 80-100% du cote)",
          yolox="translate=0.1 (random_affine)",
-         ecart="Chez les DETR la translation n'est pas parametrable : elle vient "
-               "du tirage de position du recadrage, borne par min_scale=0.8. "
-               "RF-DETR n'a ni translation ni recadrage parametrables."),
+         ecart="Aucun des trois DETR n'expose de translation : elle resulte du "
+               "tirage de position de leur recadrage interne (borne par "
+               "min_scale=0.8 chez RT-DETR et D-FINE, non reglable chez "
+               "RF-DETR). Amplitude du meme ordre que translate=0.1, loi "
+               "differente."),
     dict(effet="Zoom / echelle", reference="scale = 0.25 (facteur [0.75,1.25])",
          ultralytics="scale=0.25",
-         rfdetr="resize interne, non parametrable",
+         rfdetr="OneOf : resize direct, ou resize 400/500/600 + recadrage + "
+                "resize 640 -- variation d'echelle reelle mais non parametrable",
          detr="RandomZoomOut(side_range=(1.0,1.333)) -> x[0.75,1.0] et "
               "RandomIoUCrop(min_scale=0.8) -> x[1.0,1.25]",
          yolox="mosaic_scale=(0.75,1.25)",
@@ -163,14 +166,18 @@ _TABLE = [
          reference=f"conserver >= {int(cfg.MIN_VISIBILITY * 100)}% de l'aire d'origine",
          ultralytics=f"box_candidates(area_thr={cfg.MIN_VISIBILITY}) -- le 0.10 "
                      "code en dur est patche par le benchmark",
-         rfdetr="sans objet : flips et couleur ne tronquent aucune boite",
+         rfdetr=f"min_visibility={cfg.MIN_VISIBILITY} impose au BboxParams du "
+                "package (defaut 0.0 : un eclat de boite restait annote)",
          detr="RandomIoUCrop ne garde que les boites dont le CENTRE tombe dans "
               "le recadrage : une boite conservee garde donc au moins 25% de son "
               "aire, deja plus strict que le seuil",
          yolox=f"filtre ajoute a la sortie de random_affine (seuil "
                f"{cfg.MIN_VISIBILITY})",
-         ecart="Regle harmonisee, par trois mecanismes differents. Sans elle, "
-               "YOLOX et les DETR gardaient des eclats de boite de 1 px."),
+         ecart="Regle harmonisee, par quatre mecanismes differents. Attention : "
+               "chez RT-DETR et D-FINE le critere natif est le CENTRE de la boite, "
+               "pas son aire -- une boite visible a plus de 20 % mais dont le "
+               "centre sort du recadrage est supprimee. Ces deux modeles sont "
+               "donc plus stricts que la regle, jamais plus laxistes."),
     dict(effet="Remplissage des bords vides", reference="gris 114 (YOLO)",
          ultralytics="114", rfdetr="sans objet",
          detr="fill=114 (les depots utilisent du noir, fill=0)",
@@ -237,6 +244,72 @@ def patch_ultralytics_visibility(min_visibility=None):
     RandomPerspective.box_candidates = staticmethod(box_candidates)
     print(f"  Ultralytics : visibilite minimale des boites portee a {seuil:.0%} "
           f"(defaut du framework : 10%)")
+    return seuil
+
+
+def patch_rfdetr_visibility(min_visibility=None):
+    """Porte le seuil de visibilite de RF-DETR a cfg.MIN_VISIBILITY.
+
+    Le pipeline d'entrainement de RF-DETR tire a pile ou face entre un
+    redimensionnement direct et un enchainement redimensionnement -> recadrage ->
+    redimensionnement. Ce recadrage tronque des boites, et le wrapper
+    albumentations du package fixe `min_visibility=0.0` : une boite reduite a un
+    eclat reste annotee.
+
+    Le seuil n'est pas atteignable par `aug_config` : on substitue donc, dans le
+    seul module `rfdetr.datasets.transforms`, un `BboxParams` qui impose notre
+    valeur. Le patch est verifie avant d'etre conserve ; s'il ne prend pas, la
+    fonction previent et ne touche a rien (la difference est alors a lire dans
+    docs/AUGMENTATION.md).
+
+    Renvoie le seuil applique, ou None si le patch n'a pas pu etre pose.
+    """
+    import types
+
+    seuil = cfg.MIN_VISIBILITY if min_visibility is None else min_visibility
+    try:
+        import albumentations as alb
+        from rfdetr.datasets import transforms as rf_transforms
+    except Exception as e:
+        print(f"  RF-DETR : patch de visibilite impossible ({type(e).__name__}: {e})")
+        return None
+
+    courant = getattr(rf_transforms, "alb", None)
+    if courant is None:
+        print("  RF-DETR : module albumentations introuvable dans "
+              "rfdetr.datasets.transforms -> seuil de visibilite inchange (0 %)")
+        return None
+    if getattr(courant, "_aphids_seuil", None) == seuil:
+        return seuil
+
+    base = getattr(courant, "_aphids_origine", courant)
+
+    class BboxParams(base.BboxParams):
+        """BboxParams de RF-DETR, avec le seuil de visibilite du benchmark."""
+
+        def __init__(self, *args, **kwargs):
+            kwargs["min_visibility"] = seuil
+            super().__init__(*args, **kwargs)
+
+    proxy = types.ModuleType("albumentations_aphids")
+    proxy.__dict__.update(base.__dict__)
+    proxy.BboxParams = BboxParams
+    proxy._aphids_seuil = seuil
+    proxy._aphids_origine = base
+
+    # Verification : le seuil doit effectivement ressortir du BboxParams patche.
+    try:
+        essai = proxy.BboxParams(format="pascal_voc", label_fields=["category_ids"])
+        if float(getattr(essai, "min_visibility", 0.0)) != float(seuil):
+            raise ValueError(f"min_visibility={getattr(essai, 'min_visibility', None)}")
+    except Exception as e:
+        print(f"  RF-DETR : patch de visibilite refuse par la version installee "
+              f"({type(e).__name__}: {e}) -> seuil inchange (0 %)")
+        return None
+
+    rf_transforms.alb = proxy
+    print(f"  RF-DETR : visibilite minimale des boites portee a {seuil:.0%} "
+          f"(defaut du package : 0 %)")
     return seuil
 
 

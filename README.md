@@ -158,11 +158,22 @@ plus `batch`, `grad_accum`, `best_epoch`, `epochs_run` et `repo_commit`.
   `scale` et `translate`, `"affine"` les remplace par un `RandomAffine` aux
   parametres exacts d'Ultralytics, `"natif"` restaure les amplitudes des depots.
 - **Boites tronquees.** `cfg.MIN_VISIBILITY = 0.20` : une boite qui ne conserve
-  pas 20 % de son aire apres augmentation n'est plus annotee. Ultralytics
-  appliquait 10 % (valeur codee en dur, patchee), YOLOX ne retirait que les
-  boites de moins d'un pixel (filtre ajoute apres `random_affine`), et chez les
-  DETR le critere natif de `RandomIoUCrop` -- ne garder que les boites dont le
-  centre tombe dans le recadrage -- garantit deja au moins 25 %.
+  pas 20 % de son aire apres augmentation n'est plus annotee. Le seuil est
+  obtenu par quatre mecanismes differents, et un seul n'est pas exactement la
+  meme regle :
+
+  | Modele | Comment | Regle identique ? |
+  |---|---|---|
+  | YOLO26n/11n/12n | `box_candidates(area_thr=0.20)` -- le 0.10 code en dur est patche | oui |
+  | RF-DETR-N | `min_visibility=0.20` impose au `BboxParams` du package (defaut 0.0) | oui |
+  | YOLOX-Nano | filtre ajoute a la sortie de `random_affine` (ne retirait que les boites < 1 px) | oui |
+  | RT-DETR-R18 / D-FINE-N | critere natif de `RandomIoUCrop` : seules les boites dont le **centre** tombe dans le recadrage sont gardees | **non, plus strict** |
+
+  Pour les deux derniers, une boite conservee garde forcement au moins 25 % de
+  son aire, donc le seuil n'est jamais viole ; mais une boite visible a plus de
+  20 % dont le centre sort du recadrage est supprimee, la ou les autres
+  modeles la garderaient. Ces deux modeles sont donc plus severes, jamais plus
+  laxistes.
 - **Early stopping.** Natif chez Ultralytics et RF-DETR (patience 5). RT-DETR,
   D-FINE et YOLOX n'en ont pas : ils consomment les 30 epoques, et le benchmark
   retient l'epoque de meilleur mAP de validation. La selection du modele est
