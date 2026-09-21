@@ -394,6 +394,32 @@ for t in tuiles:
 visualize.compare(fold=0, n_aug=6, seed=2,
                   pipelines={"YOLOX-Nano": visualize.PIPELINES["YOLOX-Nano"]})
 """),
+        md("## Comparer les trois geometries possibles pour RT-DETR / D-FINE\n\n"
+           "`cfg.DETR_GEOM` decide de l'amplitude d'echelle et de translation des "
+           "deux DETR :\n\n"
+           "- **`reference`** (defaut) : les transforms natives des depots, bornes "
+           "calees sur `scale = 0.25` -> objet dans x[0.75, 1.25], comme les YOLO ;\n"
+           "- **`affine`** : `RandomZoomOut` et `RandomIoUCrop` remplaces par un "
+           "`RandomAffine` portant exactement `translate = 0.1` et "
+           "`scale = (0.75, 1.25)` ;\n"
+           "- **`natif`** : les amplitudes d'origine des depots, x[0.25, 3.3].\n\n"
+           "La figure ci-dessous met les trois cote a cote sur la meme tuile. "
+           "Choisir, puis fixer `cfg.DETR_GEOM` dans la cellule de configuration "
+           "des notebooks d'entrainement."),
+        code("""
+def geometrie(mode):
+    def pipeline(tile, n_aug, pool, seed=0):
+        cfg.DETR_GEOM = mode          # lu a chaque appel par patch_ops
+        return visualize.aug_detr(tile, n_aug, pool, seed=seed)
+    return pipeline
+
+visualize.compare(fold=0, n_aug=4, seed=0, pipelines={
+    "RT-DETR / D-FINE (reference)": geometrie("reference"),
+    "RT-DETR / D-FINE (affine)":    geometrie("affine"),
+    "RT-DETR / D-FINE (natif)":     geometrie("natif"),
+})
+cfg.DETR_GEOM = "reference"           # on remet le defaut
+"""),
         code("""
 # --- Table des correspondances, a mettre en regard de la figure ---
 from aphids_det import augment

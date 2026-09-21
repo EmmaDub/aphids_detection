@@ -278,8 +278,11 @@ def aug_detr(tile, n_aug, pool=None, seed=0):
         out.append((res["image"].permute(1, 2, 0).numpy().astype(np.uint8),
                     res["boxes"].numpy().reshape(-1, 4),
                     res["labels"].numpy().astype(int)))
-    print(f"  RT-DETR / D-FINE : {source}")
-    return out, "sans mosaique ; ZoomOut + IoUCrop"
+    print(f"  RT-DETR / D-FINE : {source}, geometrie '{cfg.DETR_GEOM}'")
+    geo = {"reference": "ZoomOut + IoUCrop cales sur la reference",
+           "affine": "RandomAffine, parametres d'Ultralytics",
+           "natif": "ZoomOut + IoUCrop aux bornes des depots"}
+    return out, f"sans mosaique ; {geo.get(cfg.DETR_GEOM, cfg.DETR_GEOM)}"
 
 
 def _yolox_funcs():
