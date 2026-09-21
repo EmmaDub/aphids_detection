@@ -55,6 +55,13 @@ puis lance sa validation croisee. **La reprise est automatique** : un couple
 (modele, fold) deja present dans le CSV est saute, et une erreur sur un fold
 n'interrompt pas les suivants.
 
+**Les chemins Drive sont ecrits en clair dans la cellule `CONFIG DONNEES`** de
+chaque notebook (memes valeurs que `comparaison_modeles_ultralytics.ipynb`) :
+c'est le seul endroit a modifier pour changer de jeu de donnees. La cellule
+suivante verifie que chaque chemin existe avant de lancer quoi que ce soit.
+`aphids_det/config.py` porte les memes valeurs par defaut, pour un usage hors
+notebook.
+
 Avant une campagne, la plomberie se verifie sans GPU ni donnees :
 
 ```bash

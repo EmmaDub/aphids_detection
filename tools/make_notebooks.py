@@ -47,19 +47,76 @@ drive.mount('/content/drive')
 """)
 
 CELL_CONFIG = code("""
-# --- Configuration ---
-# Les chemins par defaut sont ceux de aphids_det/config.py. Pour les changer,
-# decommenter et adapter, puis relancer cfg.refresh().
+# --- CONFIG DONNEES (source des tuiles + variante labels_cell_20) ---
+# Memes chemins que comparaison_modeles_ultralytics.ipynb : c'est ici, et nulle
+# part ailleurs, qu'on change de jeu de donnees.
 from pathlib import Path
 import aphids_det.config as cfg
 
-# cfg.BASE_DIR  = Path("/content/drive/MyDrive/.../tuile_viz02_640_128")
-# cfg.OUT_DIR   = Path("/content/drive/MyDrive/.../puceron_model_article/data")
-# cfg.EPOCHS    = 30
-# cfg.USE_WANDB = True
+cfg.BASE_DIR = Path("/content/drive/MyDrive/Emma/puceron_model_2026/"
+                    "puceron_model_E2026_3/data/tuile_viz02_640_128")
+cfg.SPLIT_DIR = cfg.BASE_DIR / "split"
+cfg.CELL_DIR = Path("/content/drive/MyDrive/Emma/puceron_model_2026/"
+                    "puceron_model_E2026_2/data/cell/tuile_viz02_640_128_cell")
+cfg.MAIN_IMAGES_DIR = cfg.BASE_DIR / "images"
+cfg.BG_DIR = Path("/content/drive/MyDrive/Emma/puceron_model_2026/"
+                  "puceron_model_E2026_2/data/images_complete")
+cfg.BG_ZIP = cfg.BG_DIR.parent / "tuile_viz02_640_128_background.zip"
+
+cfg.EXPERIMENT_NAME = "yolo_neg1"
+cfg.SEARCH_VARIANT = "labels_cell_20"
+cfg.VARIANTS = {
+    "labels_cell_20": cfg.V(
+        cfg.SPLIT_DIR / "split_assignments_all_background.csv", "labels_visible_20",
+        extra_train={"csv":        cfg.CELL_DIR / "split" / "split_assignments.csv",
+                     "labels_dir": cfg.CELL_DIR / "labels_cell_20",
+                     "images_dir": cfg.CELL_DIR / "images_lookmatched3"}),
+}
+
+cfg.CLASS_NAMES = {0: "Apterous_aphid", 1: "Alate_aphid"}
+cfg.N_CV_FOLDS = 5          # folds 0-4 en validation croisee
+cfg.TEST_FOLD = 5           # fold 5 : test, jamais utilise ici
+cfg.CV_FOLDS = list(range(cfg.N_CV_FOLDS))
+cfg.NEG_RATIO = 3
+
+# --- SORTIES (Drive) et budget ---
+cfg.OUT_DIR = Path("/content/drive/MyDrive/Emma/puceron_model_2026/"
+                   "puceron_model_article/data")
+cfg.EPOCHS = 30
+cfg.IMGSZ = 640
+cfg.PATIENCE = 5
+cfg.SEED = 42
+cfg.USE_WANDB = True
+cfg.WANDB_PROJECT = "comparaison_pucerons_detection"
 
 cfg.refresh()
 cfg.summary()
+""")
+
+CELL_CHECK_PATHS = code("""
+# --- Verification des chemins Drive avant de lancer quoi que ce soit ---
+attendus = {
+    "tuiles (images)": cfg.MAIN_IMAGES_DIR,
+    "labels": cfg.VARIANTS[cfg.SEARCH_VARIANT]["labels_dir"],
+    "CSV de split": cfg.VARIANTS[cfg.SEARCH_VARIANT]["csv"],
+    "fonds (images_complete)": cfg.BG_DIR,
+    "renfort cell : images": cfg.VARIANTS[cfg.SEARCH_VARIANT]["extra_train"]["images_dir"],
+    "renfort cell : labels": cfg.VARIANTS[cfg.SEARCH_VARIANT]["extra_train"]["labels_dir"],
+    "renfort cell : CSV": cfg.VARIANTS[cfg.SEARCH_VARIANT]["extra_train"]["csv"],
+    "sorties (Drive)": cfg.OUT_DIR,
+}
+for nom, p in attendus.items():
+    p = Path(p)
+    etat = "OK     " if p.exists() else "MANQUE "
+    extra = ""
+    if p.is_dir():
+        try:
+            extra = f"  ({sum(1 for _ in p.iterdir())} entrees)"
+        except OSError:
+            pass
+    print(f"{etat}{nom:28s} {p}{extra}")
+if not Path(cfg.BG_DIR).exists():
+    print(f"\\n(fonds absents : l'archive {cfg.BG_ZIP} sera extraite en local)")
 """)
 
 CELL_FOLDS = code("""
@@ -89,7 +146,7 @@ d[["modele", "fold", "map50_macro", "map5095_macro", "latency_cpu_ms",
 
 def preamble(title, intro, install_cell, folds=True, wandb=True):
     cells = [md(f"# {title}\n\n{intro}"), install_cell, CELL_DRIVE, cell_code_repo(),
-             CELL_CONFIG]
+             CELL_CONFIG, CELL_CHECK_PATHS]
     if folds:
         cells.append(CELL_FOLDS)
     if wandb:
