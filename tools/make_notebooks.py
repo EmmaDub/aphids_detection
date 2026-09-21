@@ -367,6 +367,22 @@ NOTEBOOKS["07_visualisation_augmentations.ipynb"] = notebook(
 from aphids_det import visualize
 fig = visualize.compare(fold=0, n_aug=4, seed=0, save=True)
 """),
+        md("## Le meme effet, pousse a sa valeur extreme\n\n"
+           "La figure precedente montre des **tirages aleatoires** : deux lignes "
+           "ne sont donc jamais comparables case par case. Celle-ci est "
+           "**deterministe** -- une colonne = un effet pousse a la borne de la "
+           "reference (saturation x1.2, echelle x0.75 et x1.25, translation "
+           "+10 %...), applique par le code de chaque framework. C'est la figure "
+           "a utiliser pour verifier qu'un meme reglage produit bien le meme "
+           "effet partout.\n\n"
+           "Le determinisme n'est pas obtenu en trichant sur le calcul : quand "
+           "l'API le permet on passe un intervalle degenere (`saturation=(1.2, "
+           "1.2)`, `scales=(1.25, 1.25)`), sinon on force les tirages a leur "
+           "borne. Une case barree signale un reglage que le framework n'expose "
+           "pas -- c'est une information, pas un echec."),
+        code("""
+visualize.compare_effets(fold=0, save=True)
+"""),
         md("## Plusieurs tuiles\n\n"
            "Meme figure sur d'autres tuiles : une seule tuile ne suffit pas a "
            "juger d'une augmentation aleatoire."),

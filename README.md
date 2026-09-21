@@ -141,10 +141,25 @@ RT-DETR/D-FINE, et `random_affine` + `augment_hsv` de YOLOX orchestres comme sa
 `MosaicDetection`. Les quatre cohabitent dans un meme runtime parce qu'aucun
 entrainement n'a lieu : YOLOX y est clone sans etre installe.
 
-C'est le moyen le plus rapide de verifier de visu ce que dit
+Le notebook produit deux figures complementaires :
+
+- `visualize.compare()` -- des **tirages aleatoires** du pipeline complet : ce
+  que le modele voit reellement a l'entrainement (mosaique comprise). Deux
+  lignes ne sont pas comparables case par case.
+- `visualize.compare_effets()` -- **un effet par colonne, pousse a la borne de
+  la reference** (saturation x1.2, echelle x0.75 et x1.25, translation +10 %...)
+  et sans aucun hasard : les lignes deviennent comparables case par case. C'est
+  la figure qui verifie qu'un meme reglage produit bien le meme effet partout.
+  Le determinisme vient d'un intervalle degenere quand l'API l'accepte
+  (`saturation=(1.2, 1.2)`, `scales=(1.25, 1.25)`), et sinon des tirages forces
+  a leur borne ; une case barree signale un reglage que le framework n'expose
+  pas.
+
+Ensemble, elles verifient de visu ce que dit
 [docs/AUGMENTATION.md](docs/AUGMENTATION.md) : mosaique presente chez YOLO et
-YOLOX, absente des trois DETR ; miroirs verticaux ajoutes partout ; recadrages
-`ZoomOut`/`IoUCrop` a la place de `translate`/`scale` chez les DETR.
+YOLOX, absente des trois DETR ; miroirs verticaux ajoutes partout ; echelle
+ramenee a x[0.75, 1.25] chez les DETR ; HSV additif de YOLOX contre gain
+multiplicatif ailleurs.
 
 ## Sorties (sur le Drive, dans `OUT_DIR`)
 

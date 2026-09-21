@@ -16,14 +16,17 @@ redimensionnement interne de RF-DETR n'est pas reproduit, et les conversions de
 fin de pipeline (tenseur, normalisation des boites) sont omises puisqu'elles
 n'ont aucun effet visuel.
 
-Utilisation :
+Deux figures :
 
     from aphids_det import visualize
-    visualize.compare(fold=0, n_aug=4, save=True)
+    visualize.compare(fold=0, n_aug=4, save=True)   # tirages aleatoires
+    visualize.compare_effets(fold=0, save=True)     # un effet par colonne, a sa
+                                                    # valeur extreme, sans hasard
 """
 
 import random
 import textwrap
+from contextlib import contextmanager
 from collections import namedtuple
 from pathlib import Path
 
@@ -476,6 +479,353 @@ def compare(fold=0, n_aug=4, seed=0, pipelines=None, tile=None, pool=None,
     if save:
         out = Path(save) if isinstance(save, (str, Path)) else \
             Path(cfg.OUT_DIR) / f"augmentations_fold{fold}_{tile.path.stem}.png"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(out, dpi=200, facecolor=SURFACE, bbox_inches="tight")
+        print("Figure ecrite ->", out)
+    return fig
+
+
+# ========================================================================
+# Comparaison effet par effet, a valeur extreme (sans aleatoire)
+# ========================================================================
+# `compare()` montre des tirages aleatoires : deux lignes ne sont donc jamais
+# comparables case par case. Ici chaque colonne est UN effet pousse a sa borne
+# de la reference (saturation x1.2, echelle x0.75 et x1.25, translation +10 %...)
+# et chaque ligne l'applique avec le code du framework concerne. Une case vide
+# signifie que le framework n'expose pas ce reglage.
+#
+# Le determinisme est obtenu de deux facons, jamais en trichant sur le calcul :
+#   - en passant un intervalle degenere quand l'API l'accepte -- ColorJitter
+#     (saturation=(1.2, 1.2)), RandomZoomOut (side_range=(1.333, 1.333)),
+#     `get_aug_params` de YOLOX (scales=(1.25, 1.25)) ;
+#   - en forcant les tirages a leur borne quand elle ne l'accepte pas, par le
+#     gestionnaire `_tirages_extremes` (Ultralytics tire son gain HSV et son
+#     echelle avec `random.uniform` / `np.random.uniform` sans parametre de
+#     borne fixe).
+
+EFFETS = [
+    ("Saturation x1.2", "saturation"),
+    ("Luminosite x1.2", "luminosite"),
+    ("Miroir vertical", "flipud"),
+    ("Miroir horizontal", "fliplr"),
+    ("Echelle x0.75", "echelle_min"),
+    ("Echelle x1.25", "echelle_max"),
+    ("Translation +10%", "translation"),
+]
+
+_GAIN_SAT = 1 + AUG["hsv_s"]        # 1.2
+_GAIN_VAL = 1 + AUG["hsv_v"]        # 1.2
+_ECHELLE = {"echelle_min": 1 - AUG["scale"], "echelle_max": 1 + AUG["scale"]}
+
+
+@contextmanager
+def _tirages_extremes(borne="max", valeur_torch=0.5):
+    """Force les tirages aleatoires a leur borne, le temps d'un appel.
+
+    `borne="max"` renvoie la borne superieure de chaque `uniform`, `"min"` la
+    borne inferieure. `torch.rand` est fixe a `valeur_torch` (0.5 = position
+    centree pour les recadrages torchvision) et `np.random.randint` a 1, pour
+    que le decalage HSV de YOLOX s'applique sur tous les canaux.
+    """
+    import random as _random
+
+    import numpy as _np
+
+    ru, nu, nri = _random.uniform, _np.random.uniform, _np.random.randint
+    try:
+        import torch as _torch
+        tr = _torch.rand
+    except ImportError:
+        _torch, tr = None, None
+
+    def faux_uniform(a, b):
+        return b if borne == "max" else a
+
+    def faux_np_uniform(low=0.0, high=1.0, size=None):
+        v = high if borne == "max" else low
+        return _np.full(size, v, dtype=float) if size is not None else float(v)
+
+    def faux_randint(low, high=None, size=None, dtype=int):
+        return _np.ones(size, dtype=int) if size is not None else 1
+
+    def faux_rand(*taille, **kw):
+        if len(taille) == 1 and isinstance(taille[0], (tuple, list)):
+            taille = tuple(taille[0])
+        kw = {k: v for k, v in kw.items() if k in ("dtype", "device")}
+        return _torch.full(taille or (1,), float(valeur_torch), **kw)
+
+    _random.uniform, _np.random.uniform, _np.random.randint = (
+        faux_uniform, faux_np_uniform, faux_randint)
+    if _torch is not None:
+        _torch.rand = faux_rand
+    try:
+        yield
+    finally:
+        _random.uniform, _np.random.uniform, _np.random.randint = ru, nu, nri
+        if _torch is not None:
+            _torch.rand = tr
+
+
+# ------------------------------------------------------------- Ultralytics
+_DS_CACHE = {}
+
+
+def _ultralytics_dataset(tile, pool, over):
+    """Dataset Ultralytics minimal, avec toutes les augmentations a zero sauf `over`."""
+    from ultralytics.cfg import get_cfg
+    from ultralytics.data.dataset import YOLODataset
+    from ultralytics.utils import DEFAULT_CFG
+
+    cle = (str(tile.path), tuple(sorted(over.items())))
+    if cle in _DS_CACHE:
+        return _DS_CACHE[cle]
+
+    patch_ultralytics_visibility()
+    zero = {k: (0.0 if isinstance(getattr(DEFAULT_CFG, k), (int, float)) else
+                getattr(DEFAULT_CFG, k))
+            for k in AUG if hasattr(DEFAULT_CFG, k)}
+    zero.update({k: v for k, v in over.items() if hasattr(DEFAULT_CFG, k)})
+    hyp = get_cfg(DEFAULT_CFG, overrides={**zero, "imgsz": cfg.IMGSZ})
+
+    txt = Path(cfg.WORK_ROOT) / "viz" / "pool_effets.txt"
+    txt.parent.mkdir(parents=True, exist_ok=True)
+    chemins = [str(tile.path)] + [str(t.path) for t in (pool or [])[:3]
+                                  if t.path != tile.path]
+    txt.write_text("\n".join(chemins))
+
+    noms = dict(cfg.CLASS_NAMES)
+    ds = YOLODataset(img_path=str(txt), imgsz=cfg.IMGSZ, augment=True, hyp=hyp,
+                     data={"names": noms, "nc": len(noms), "channels": 3},
+                     task="detect", rect=False)
+    idx = next((i for i, f in enumerate(ds.im_files)
+                if Path(f).name == tile.path.name), 0)
+    _DS_CACHE[cle] = (ds, idx)
+    return ds, idx
+
+
+def _ultralytics_sortie(ds, idx):
+    d = ds[idx]
+    img = np.ascontiguousarray(d["img"].permute(1, 2, 0).numpy())
+    H, W = img.shape[:2]
+    b = d["bboxes"].numpy().reshape(-1, 4)
+    xyxy = (np.stack([(b[:, 0] - b[:, 2] / 2) * W, (b[:, 1] - b[:, 3] / 2) * H,
+                      (b[:, 0] + b[:, 2] / 2) * W, (b[:, 1] + b[:, 3] / 2) * H], 1)
+            if len(b) else np.zeros((0, 4)))
+    return img, xyxy, d["cls"].numpy().reshape(-1).astype(int)
+
+
+def effet_ultralytics(tile, effet, pool=None):
+    """Un effet isole, a sa borne, par le pipeline Ultralytics."""
+    reglages = {
+        "saturation": ({"hsv_s": AUG["hsv_s"]}, "max"),
+        "luminosite": ({"hsv_v": AUG["hsv_v"]}, "max"),
+        "flipud": ({"flipud": 1.0}, "max"),
+        "fliplr": ({"fliplr": 1.0}, "max"),
+        "echelle_min": ({"scale": AUG["scale"]}, "min"),
+        "echelle_max": ({"scale": AUG["scale"]}, "max"),
+        "translation": ({"translate": AUG["translate"]}, "max"),
+    }
+    if effet not in reglages:
+        return None
+    over, borne = reglages[effet]
+    ds, idx = _ultralytics_dataset(tile, pool, over)
+    with _tirages_extremes(borne):
+        return _ultralytics_sortie(ds, idx)
+
+
+# ----------------------------------------------------------------- RF-DETR
+def effet_rfdetr(tile, effet, pool=None):
+    """Un effet isole, a sa borne, avec les transforms albumentations de `aug_config`."""
+    import albumentations as A
+
+    if effet == "saturation":
+        t = A.ColorJitter(brightness=(1, 1), contrast=(1, 1),
+                          saturation=(_GAIN_SAT, _GAIN_SAT), hue=(0, 0), p=1.0)
+    elif effet == "luminosite":
+        t = A.RandomBrightnessContrast(brightness_limit=(AUG["hsv_v"], AUG["hsv_v"]),
+                                       contrast_limit=(0, 0), p=1.0)
+    elif effet == "flipud":
+        t = A.VerticalFlip(p=1.0)
+    elif effet == "fliplr":
+        t = A.HorizontalFlip(p=1.0)
+    else:
+        return None                     # echelle et translation : non exposees
+
+    pipe = A.Compose([t], bbox_params=A.BboxParams(
+        format="pascal_voc", label_fields=["classes"],
+        min_visibility=cfg.MIN_VISIBILITY))
+    res = pipe(image=_read_rgb(tile.path), bboxes=tile.boxes.tolist(),
+               classes=tile.classes.tolist())
+    return (np.ascontiguousarray(res["image"]),
+            np.array(res["bboxes"], dtype=np.float32).reshape(-1, 4),
+            np.array(res["classes"], dtype=int))
+
+
+# --------------------------------------------------------- RT-DETR / D-FINE
+def effet_detr(tile, effet, pool=None):
+    """Un effet isole, a sa borne, avec les classes torchvision v2 des depots."""
+    resize = {"type": "Resize", "size": [cfg.IMGSZ, cfg.IMGSZ]}
+    sanitize = {"type": "SanitizeBoundingBoxes", "min_size": 1}
+    if effet == "saturation":
+        ops = [{"type": "ColorJitter", "saturation": [_GAIN_SAT, _GAIN_SAT]}]
+    elif effet == "luminosite":
+        ops = [{"type": "ColorJitter", "brightness": [_GAIN_VAL, _GAIN_VAL]}]
+    elif effet == "flipud":
+        ops = [{"type": "RandomVerticalFlip", "p": 1.0}]
+    elif effet == "fliplr":
+        ops = [{"type": "RandomHorizontalFlip", "p": 1.0}]
+    elif effet == "echelle_min":
+        # toile agrandie de 1/0.75 puis retour a 640 : objet a x0.75
+        r = round(1 / _ECHELLE["echelle_min"], 3)
+        ops = [{"type": "RandomZoomOut", "fill": 114, "side_range": [r, r], "p": 1.0},
+               resize]
+    elif effet == "echelle_max":
+        # recadrage de 1/1.25 = 80 % du cote puis retour a 640 : objet a x1.25
+        r = round(1 / _ECHELLE["echelle_max"], 3)
+        ops = [{"type": "RandomIoUCrop", "min_scale": r, "max_scale": r,
+                "min_aspect_ratio": 0.9, "max_aspect_ratio": 1.1,
+                "sampler_options": [0.0], "p": 1.0}, sanitize, resize]
+    else:
+        return None                     # translation : liee au tirage du recadrage
+
+    import torch
+    from torchvision import tv_tensors
+
+    img = _read_rgb(tile.path)
+    H, W = img.shape[:2]
+    echantillon = {
+        "image": tv_tensors.Image(torch.from_numpy(img).permute(2, 0, 1)),
+        "boxes": tv_tensors.BoundingBoxes(torch.from_numpy(tile.boxes),
+                                          format="XYXY", canvas_size=(H, W)),
+        "labels": torch.from_numpy(tile.classes),
+    }
+    with _tirages_extremes("max", valeur_torch=0.5):   # recadrage centre
+        res = _detr_transform(ops)(echantillon)
+    return (res["image"].permute(1, 2, 0).numpy().astype(np.uint8),
+            res["boxes"].numpy().reshape(-1, 4),
+            res["labels"].numpy().astype(int))
+
+
+# -------------------------------------------------------------------- YOLOX
+def effet_yolox(tile, effet, pool=None):
+    """Un effet isole, a sa borne, avec `augment_hsv` et `random_affine` de YOLOX."""
+    import cv2
+
+    augment_hsv, random_affine, _ = _yolox_funcs()
+    img = cv2.imread(str(tile.path))                   # BGR, comme YOLOX
+    boxes = tile.boxes.copy()
+    classes = tile.classes.copy()
+
+    if effet in ("saturation", "luminosite"):
+        _, sgain, vgain = AUG_YOLOX["hsv_gains"]
+        gains = (0, sgain, 0) if effet == "saturation" else (0, 0, vgain)
+        img = np.ascontiguousarray(img)
+        with _tirages_extremes("max"):                 # decalage maximal, tous canaux
+            augment_hsv(img, *gains)
+    elif effet == "flipud":
+        img = np.ascontiguousarray(img[::-1])
+        boxes[:, 1::2] = img.shape[0] - tile.boxes[:, 3::-2]
+    elif effet == "fliplr":
+        img = np.ascontiguousarray(img[:, ::-1])
+        boxes[:, 0::2] = img.shape[1] - tile.boxes[:, 2::-2]
+    elif effet in ("echelle_min", "echelle_max", "translation"):
+        s = 1.0 if effet == "translation" else _ECHELLE[effet]
+        # `random_affine` de YOLOX met l'echelle a l'origine (0, 0) : on recentre
+        # par son propre parametre translate, (1 - s) / 2, force a sa borne.
+        t = AUG["translate"] if effet == "translation" else (1 - s) / 2
+        lab = np.hstack([boxes, classes[:, None]]).astype(np.float32)
+        with _tirages_extremes("max"):
+            img, lab = random_affine(img, lab, target_size=(cfg.IMGSZ, cfg.IMGSZ),
+                                     degrees=0.0, translate=t, scales=(s, s),
+                                     shear=0.0)
+        boxes, classes = lab[:, :4], lab[:, 4].astype(int)
+    else:
+        return None
+
+    return cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_BGR2RGB), boxes, classes
+
+
+EFFET_PIPELINES = {
+    "YOLO26n / YOLO11n / YOLO12n": effet_ultralytics,
+    "RF-DETR-N": effet_rfdetr,
+    "RT-DETR-R18 / D-FINE-N": effet_detr,
+    "YOLOX-Nano": effet_yolox,
+}
+
+
+def compare_effets(fold=0, tile=None, pool=None, effets=None, pipelines=None,
+                   seed=0, save=False, min_boxes=2, figsize_scale=2.2):
+    """Figure deterministe : une ligne par pipeline, une colonne par effet extreme.
+
+    Contrairement a `compare()`, aucune case n'est aleatoire : chaque colonne
+    montre le meme effet pousse a la meme borne de la reference, ce qui rend les
+    lignes comparables case par case. Une case barree signale un reglage que le
+    framework n'expose pas.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    effets = effets or EFFETS
+    pipelines = pipelines or EFFET_PIPELINES
+    if tile is None or pool is None:
+        tuiles, vivier = sample_tiles(fold=fold, n=1, seed=seed, min_boxes=min_boxes)
+        tile = tile or tuiles[0]
+        pool = pool or vivier
+    original = _read_rgb(tile.path)
+
+    resultats = {}
+    for nom, fonction in pipelines.items():
+        ligne = {}
+        for _titre, effet in effets:
+            try:
+                ligne[effet] = fonction(tile, effet, pool)
+            except Exception as e:
+                print(f"  {nom} / {effet} : {type(e).__name__}: {e}")
+                ligne[effet] = None
+        faits = sum(1 for v in ligne.values() if v is not None)
+        print(f"  {nom} : {faits}/{len(effets)} effets reproduits")
+        resultats[nom] = ligne
+
+    n_rows, n_cols = len(resultats), len(effets) + 1
+    fig, axes = plt.subplots(n_rows, n_cols, squeeze=False,
+                             figsize=(figsize_scale * n_cols,
+                                      figsize_scale * n_rows + 1.2))
+    fig.patch.set_facecolor(SURFACE)
+
+    for r, (nom, ligne) in enumerate(resultats.items()):
+        _draw(axes[r][0], original, tile.boxes, tile.classes)
+        axes[r][0].set_ylabel(textwrap.fill(nom, 18), fontsize=9,
+                              color=INK_PRIMARY, rotation=0, ha="right",
+                              va="center", labelpad=10)
+        for c, (titre, effet) in enumerate(effets, start=1):
+            ax = axes[r][c]
+            res = ligne.get(effet)
+            if res is None:
+                ax.set_facecolor(SURFACE)
+                _frame(ax)
+                ax.text(0.5, 0.5, "non expose\npar le framework", fontsize=7.5,
+                        color=INK_MUTED, ha="center", va="center",
+                        transform=ax.transAxes)
+            else:
+                _draw(ax, *res)
+            if r == 0:
+                ax.set_title(titre, fontsize=8.5, color=INK_SECONDARY)
+        if r == 0:
+            axes[r][0].set_title("Tuile d'origine", fontsize=8.5, color=INK_SECONDARY)
+
+    noms = [cfg.CLASS_NAMES[i] for i in sorted(cfg.CLASS_NAMES)]
+    fig.legend(handles=[Line2D([0], [0], color=CLASS_COLORS[i], lw=2.2, label=n)
+                        for i, n in enumerate(noms)],
+               loc="lower center", ncol=len(noms), frameon=False, fontsize=9,
+               labelcolor=INK_SECONDARY, bbox_to_anchor=(0.5, 0.005))
+    fig.suptitle("Chaque effet a sa valeur extreme de reference - "
+                 f"tuile {tile.path.name} (fold {fold})",
+                 fontsize=11, color=INK_PRIMARY, y=0.998)
+    fig.tight_layout(rect=(0.0, 0.04, 1.0, 0.985))
+
+    if save:
+        out = Path(save) if isinstance(save, (str, Path)) else \
+            Path(cfg.OUT_DIR) / f"effets_fold{fold}_{tile.path.stem}.png"
         out.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(out, dpi=200, facecolor=SURFACE, bbox_inches="tight")
         print("Figure ecrite ->", out)

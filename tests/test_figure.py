@@ -163,6 +163,54 @@ faux = {
     "Pipeline en echec (test)": pipeline_casse,
 }
 
+def faux_effet(sans=()):
+    """Pipeline d'effets factice : applique l'effet demande, ou rien s'il est
+    dans `sans` (pour verifier le rendu des cases 'non expose')."""
+    def pipeline(tile, effet, pool=None):
+        if effet in sans:
+            return None
+        img = visualize._read_rgb(tile.path)
+        bx = tile.boxes.copy()
+        if effet == "saturation":
+            img = np.clip(img.astype(np.float32) * [1.2, 1.0, 1.0], 0, 255).astype(np.uint8)
+        elif effet == "luminosite":
+            img = np.clip(img.astype(np.float32) * 1.2, 0, 255).astype(np.uint8)
+        elif effet == "flipud":
+            img, bx = _flip_v(img, bx)
+        elif effet == "fliplr":
+            img, bx = _flip_h(img, bx)
+        elif effet in ("echelle_min", "echelle_max", "translation"):
+            k = {"echelle_min": 0.75, "echelle_max": 1.25, "translation": 1.0}[effet]
+            d = 64 if effet == "translation" else 0
+            m = np.full_like(img, 114)
+            n = int(S * k)
+            red = np.asarray(Image.fromarray(img).resize((n, n)))
+            o = (S - n) // 2 + d
+            xs, ys = max(o, 0), max(o, 0)
+            xe, ye = min(o + n, S), min(o + n, S)
+            m[ys:ye, xs:xe] = red[max(0, -o):ye - o, max(0, -o):xe - o]
+            img = m
+            bx = bx * k + (o - 0 if k != 1 else d)
+        return img, bx, tile.classes.copy()
+    return pipeline
+
+
+png_effets = Path(cfg.OUT_DIR) / "figure_effets.png"
+fig_effets = visualize.compare_effets(
+    fold=0, tile=t0, pool=vivier, save=png_effets,
+    pipelines={
+        "YOLO26n / YOLO11n / YOLO12n": faux_effet(),
+        "RF-DETR-N": faux_effet(sans=("echelle_min", "echelle_max", "translation")),
+        "RT-DETR-R18 / D-FINE-N": faux_effet(sans=("translation",)),
+        "YOLOX-Nano": faux_effet(),
+    })
+attendu = len(visualize.EFFETS) + 1
+assert fig_effets.axes[0].get_title() == "Tuile d'origine"
+assert png_effets.exists() and png_effets.stat().st_size > 50_000
+print(f"figure effets : {png_effets.name} "
+      f"({png_effets.stat().st_size/1e3:.0f} ko, {attendu} colonnes)")
+print("CHEMIN_PNG_EFFETS:", png_effets)
+
 png = Path(cfg.OUT_DIR) / "figure_layout.png"
 fig = visualize.compare(fold=0, n_aug=4, seed=0, pipelines=faux, tile=t0,
                         pool=vivier, save=png)
