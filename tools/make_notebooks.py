@@ -302,6 +302,56 @@ df = yolox_runner.run_cv()
         CELL_TAIL,
     ])
 
+NOTEBOOKS["07_visualisation_augmentations.ipynb"] = notebook(
+    preamble(
+        "07 - Voir les augmentations des quatre pipelines cote a cote",
+        "Une ligne par pipeline, une colonne par tirage aleatoire, sur la meme "
+        "tuile. Chaque ligne execute le **vrai** code d'augmentation du "
+        "framework : `YOLODataset` d'Ultralytics (mosaique comprise), les "
+        "transforms albumentations de `aug_config` pour RF-DETR, les classes "
+        "`torchvision.transforms.v2` de la liste d'ops des depots pour "
+        "RT-DETR/D-FINE, et `random_affine` + `augment_hsv` de YOLOX orchestres "
+        "comme sa `MosaicDetection`.\n\n"
+        "Les quatre cohabitent dans ce runtime parce qu'aucun entrainement n'a "
+        "lieu : YOLOX est clone **sans etre installe**, seules ses fonctions "
+        "numpy/cv2 sont importees.",
+        code("""
+# --- Installation (aucun entrainement ici : les 4 pipelines coexistent) ---
+!pip install -q ultralytics albumentations loguru thop tabulate psutil pycocotools
+"""),
+        wandb=False,
+    ) + [
+        md("## Figure comparative\n\n"
+           "A regarder en priorite : la **mosaique** (presente pour YOLO et YOLOX, "
+           "absente des trois DETR), les **miroirs verticaux** (ajoutes par le "
+           "benchmark a RT-DETR, D-FINE et YOLOX), l'amplitude de la variation "
+           "**HSV**, et ce que `RandomZoomOut` + `RandomIoUCrop` produisent chez "
+           "les DETR a la place de `translate` et `scale`."),
+        code("""
+from aphids_det import visualize
+fig = visualize.compare(fold=0, n_aug=4, seed=0, save=True)
+"""),
+        md("## Plusieurs tuiles\n\n"
+           "Meme figure sur d'autres tuiles : une seule tuile ne suffit pas a "
+           "juger d'une augmentation aleatoire."),
+        code("""
+tuiles, vivier = visualize.sample_tiles(fold=0, n=3, seed=1, min_boxes=2)
+for t in tuiles:
+    visualize.compare(fold=0, tile=t, pool=vivier, n_aug=4, seed=1, save=True)
+"""),
+        md("## Un seul pipeline, plus de tirages\n\n"
+           "Pour inspecter un framework en particulier."),
+        code("""
+visualize.compare(fold=0, n_aug=6, seed=2,
+                  pipelines={"YOLOX-Nano": visualize.PIPELINES["YOLOX-Nano"]})
+"""),
+        code("""
+# --- Table des correspondances, a mettre en regard de la figure ---
+from aphids_det import augment
+augment.table()
+"""),
+    ])
+
 NOTEBOOKS["06_synthese.ipynb"] = notebook(
     [md("# 06 - Synthese : moyennes par modele et classeur Excel\n\n"
         "A lancer une fois les 7 modeles passes. Produit un classeur a 4 feuilles : "

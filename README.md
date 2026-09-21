@@ -47,6 +47,9 @@ notebooks/03_rtdetr_r18.ipynb          RT-DETR-R18
 notebooks/04_dfine_n.ipynb             D-FINE-N
 notebooks/05_yolox_nano.ipynb          YOLOX-Nano
 notebooks/06_synthese.ipynb            <- moyennes + classeur Excel
+
+notebooks/07_visualisation_augmentations.ipynb   <- voir les augmentations
+                                                    (independant, sans GPU)
 ```
 
 Chaque notebook clone ce depot dans `/content/aphids_detection`, monte le Drive,
@@ -65,7 +68,8 @@ notebook.
 Avant une campagne, la plomberie se verifie sans GPU ni donnees :
 
 ```bash
-python tests/test_pipeline.py
+python tests/test_pipeline.py   # folds, conversion COCO, metriques, CSV
+python tests/test_figure.py     # mise en page de la figure d'augmentations
 ```
 
 ## Structure
@@ -77,6 +81,7 @@ aphids_det/
   cocoify.py       conversion YOLO -> COCO (deux arborescences)
   augment.py       reference d'augmentation + traductions par framework
   evaluate.py      evaluateur COCO unifie (mAP, P/R/F1, TP/FP/FN)
+  visualize.py     figure comparative des augmentations des 4 pipelines
   bench.py         latence CPU, taille, CSV de resultats, boucle de CV
   external.py      clone des depots, poids COCO, relance sur OOM
   report.py        moyennes par modele, classeur Excel
@@ -86,6 +91,22 @@ notebooks/         un notebook Colab par framework
 tools/             regeneration des notebooks et de la doc
 tests/             test hors-ligne de la chaine complete
 ```
+
+## Voir les augmentations
+
+`notebooks/07_visualisation_augmentations.ipynb` produit une figure ou chaque
+ligne est un pipeline et chaque colonne un tirage aleatoire sur la meme tuile.
+Chaque ligne execute le **vrai** code du framework : `YOLODataset` d'Ultralytics
+(mosaique comprise), les transforms albumentations de `aug_config` pour RF-DETR,
+les classes `torchvision.transforms.v2` de la liste d'ops des depots pour
+RT-DETR/D-FINE, et `random_affine` + `augment_hsv` de YOLOX orchestres comme sa
+`MosaicDetection`. Les quatre cohabitent dans un meme runtime parce qu'aucun
+entrainement n'a lieu : YOLOX y est clone sans etre installe.
+
+C'est le moyen le plus rapide de verifier de visu ce que dit
+[docs/AUGMENTATION.md](docs/AUGMENTATION.md) : mosaique presente chez YOLO et
+YOLOX, absente des trois DETR ; miroirs verticaux ajoutes partout ; recadrages
+`ZoomOut`/`IoUCrop` a la place de `translate`/`scale` chez les DETR.
 
 ## Sorties (sur le Drive, dans `OUT_DIR`)
 
@@ -141,9 +162,14 @@ python tools/make_docs.py        # docs/AUGMENTATION.md a partir de augment.py
 
 Le protocole de donnees, la conversion COCO, l'evaluateur, le harnais de
 resultats et la reecriture des transforms RT-DETR/D-FINE sont couverts par
-`tests/test_pipeline.py`. Les parties qui demandent un GPU et les depots
-externes — entrainements, inference, installation des depots — ont ete ecrites
-d'apres les configs et les scripts officiels de chaque depot (verifies le
-2026-09-20) mais n'ont pas encore ete executees de bout en bout : prevoir un
-premier passage sur un seul fold (`run_fold(0)`) avant de lancer les 35
-entrainements.
+`tests/test_pipeline.py`. La selection des tuiles et la mise en page de la
+figure d'augmentations le sont par `tests/test_figure.py` (pipelines remplaces
+par des imitations numpy, pour tester le rendu sans installer les frameworks).
+
+Le reste — entrainements, inference, installation des depots, et les quatre
+pipelines d'augmentation reels de `visualize.py` — a ete ecrit d'apres les
+configs et les scripts officiels de chaque depot (relevees le 2026-09-20), mais
+demande un environnement avec torch : ces parties n'ont pas encore ete executees.
+Prevoir donc, dans cet ordre : `07_visualisation_augmentations.ipynb` (rapide,
+sans GPU, et il valide les quatre pipelines d'augmentation), puis un seul fold
+d'un modele (`run_fold(0)`), puis les 35 entrainements.

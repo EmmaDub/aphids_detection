@@ -148,6 +148,13 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 - **Ecart** : Le remplacement evite la permutation de canaux, absente de la reference.
 
 
+## Voir le resultat
+
+`notebooks/07_visualisation_augmentations.ipynb` affiche cote a cote ce que
+chaque pipeline produit reellement sur une meme tuile (code de chaque framework
+execute, pas une imitation). Le tableau ci-dessous se verifie a l'oeil sur cette
+figure.
+
 ## Ce qui n'a pas pu etre harmonise
 
 1. **Mosaique.** Ni RF-DETR, ni RT-DETR, ni D-FINE ne proposent de mosaique
