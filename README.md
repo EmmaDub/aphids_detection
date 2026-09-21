@@ -39,18 +39,25 @@ notebook par framework**, chacun dans son propre runtime.
 
 ## Demarrage
 
-```text
-notebooks/00_preparation_folds.ipynb   <- a lancer en premier, une fois
-notebooks/01_ultralytics.ipynb         YOLO26n + YOLO11n + YOLO12n
-notebooks/02_rfdetr.ipynb              RF-DETR Nano
-notebooks/03_rtdetr_r18.ipynb          RT-DETR-R18
-notebooks/04_dfine_n.ipynb             D-FINE-N
-notebooks/05_yolox_nano.ipynb          YOLOX-Nano
-notebooks/06_synthese.ipynb            <- moyennes + classeur Excel
+Ouvrir directement dans Colab, sans rien telecharger ni modifier :
 
-notebooks/07_visualisation_augmentations.ipynb   <- voir les augmentations
-                                                    (independant, sans GPU)
-```
+| Notebook | Contenu | |
+|---|---|---|
+| 00 | folds, verifications, table d'augmentation -- **a lancer en premier** | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EmmaDub/aphids_detection/blob/main/notebooks/00_preparation_folds.ipynb) |
+| 01 | YOLO26n + YOLO11n + YOLO12n | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EmmaDub/aphids_detection/blob/main/notebooks/01_ultralytics.ipynb) |
+| 02 | RF-DETR Nano | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EmmaDub/aphids_detection/blob/main/notebooks/02_rfdetr.ipynb) |
+| 03 | RT-DETR-R18 | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EmmaDub/aphids_detection/blob/main/notebooks/03_rtdetr_r18.ipynb) |
+| 04 | D-FINE-N | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EmmaDub/aphids_detection/blob/main/notebooks/04_dfine_n.ipynb) |
+| 05 | YOLOX-Nano | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EmmaDub/aphids_detection/blob/main/notebooks/05_yolox_nano.ipynb) |
+| 06 | moyennes par modele + classeur Excel | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EmmaDub/aphids_detection/blob/main/notebooks/06_synthese.ipynb) |
+| 07 | voir les augmentations (sans GPU, independant) | [![Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EmmaDub/aphids_detection/blob/main/notebooks/07_visualisation_augmentations.ipynb) |
+
+Ces liens ouvrent **la derniere version poussee** : inutile de telecharger le
+`.ipynb` puis de le modifier a la main, et c'est le moyen le plus sur d'eviter
+d'invalider le fichier en l'editant hors de Colab. Pour repartir d'une version
+propre apres avoir modifie un notebook : rouvrir le lien ci-dessus (Colab
+propose alors une copie neuve), ou `git checkout notebooks/<fichier>.ipynb` en
+local.
 
 Chaque notebook clone ce depot dans `/content/aphids_detection`, monte le Drive,
 reconstruit les folds (liens symboliques locaux, a refaire a chaque session),
