@@ -28,15 +28,51 @@ def code(text):
 def cell_code_repo():
     return code(f"""
 # --- Code du benchmark (package aphids_det) ---
-import os, sys
+# Depot PRIVE ? Deposer un jeton GitHub dans les secrets Colab (icone cle a
+# gauche) sous le nom GITHUB_TOKEN, avec l'acces "Contents: read" sur ce depot.
+# Le jeton n'est jamais ecrit dans le notebook ni affiche.
+# Depot PUBLIC ? Rien a faire, la cellule fonctionne telle quelle.
+import os, subprocess, sys
+
 REPO_DIR = "{REPO_DIR}"
-if not os.path.exists(REPO_DIR):
-    !git clone -q {REPO_URL} {{REPO_DIR}}
+REPO_URL = "{REPO_URL}"
+os.environ["GIT_TERMINAL_PROMPT"] = "0"   # echouer plutot que demander un mot de passe
+
+url = REPO_URL
+try:
+    from google.colab import userdata
+    jeton = userdata.get("GITHUB_TOKEN")
+    if jeton:
+        url = REPO_URL.replace("https://", f"https://{{jeton}}@")
+        print("jeton GITHUB_TOKEN trouve dans les secrets Colab")
+except Exception:
+    pass
+
+if os.path.exists(os.path.join(REPO_DIR, ".git")):
+    subprocess.run(["git", "-C", REPO_DIR, "remote", "set-url", "origin", url],
+                   capture_output=True, text=True)
+    r = subprocess.run(["git", "-C", REPO_DIR, "pull", "-q"],
+                       capture_output=True, text=True)
 else:
-    !git -C {{REPO_DIR}} pull -q
+    r = subprocess.run(["git", "clone", "-q", url, REPO_DIR],
+                       capture_output=True, text=True)
+
+if r.returncode != 0:
+    erreur = (r.stderr or r.stdout or "").replace(url, REPO_URL).strip()
+    raise RuntimeError(
+        "Recuperation du code impossible :\\n" + erreur + "\\n\\n"
+        "Si le message parle d'identifiant ('could not read Username'), le depot "
+        "est prive et Colab n'a pas d'acces. Au choix :\\n"
+        "  1. rendre le depot public (Settings > General > Change visibility) ;\\n"
+        "  2. creer un jeton sur github.com/settings/tokens (fine-grained, acces "
+        "'Contents: read' sur ce depot) et le deposer dans les secrets Colab "
+        "sous le nom GITHUB_TOKEN, avec l'acces notebook active ;\\n"
+        "  3. copier le dossier du depot sur le Drive et remplacer REPO_DIR par "
+        "son chemin.")
+
 sys.path.insert(0, REPO_DIR)
 import aphids_det
-print("aphids_det", aphids_det.__version__)
+print("aphids_det", aphids_det.__version__, "|", REPO_DIR)
 """)
 
 

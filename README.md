@@ -58,6 +58,19 @@ puis lance sa validation croisee. **La reprise est automatique** : un couple
 (modele, fold) deja present dans le CSV est saute, et une erreur sur un fold
 n'interrompt pas les suivants.
 
+**Depot prive et Colab.** Ce depot etant prive, `git clone` en HTTPS echoue dans
+Colab avec `could not read Username for 'https://github.com'` : git demande un
+identifiant, et un notebook n'a pas d'entree interactive. Deux facons de s'en
+sortir, la cellule de recuperation du code gere les deux :
+
+1. **rendre le depot public** (Settings > General > Change visibility). Il ne
+   contient que du code, aucune donnee ni aucun poids ;
+2. **garder le depot prive et donner un jeton a Colab** : creer un jeton
+   fine-grained sur github.com/settings/tokens avec l'acces `Contents: read` sur
+   ce depot, puis le deposer dans les secrets Colab (icone cle, a gauche) sous le
+   nom `GITHUB_TOKEN` en activant l'acces pour le notebook. Le jeton est injecte
+   dans l'URL de clonage, jamais ecrit dans le notebook ni affiche.
+
 **Les chemins Drive sont ecrits en clair dans la cellule `CONFIG DONNEES`** de
 chaque notebook (memes valeurs que `comparaison_modeles_ultralytics.ipynb`) :
 c'est le seul endroit a modifier pour changer de jeu de donnees. La cellule
