@@ -96,6 +96,23 @@ GRAD_ACCUM = {"rfdetr": 4}  # frameworks supportant l'accumulation
 AUTO_BATCH_RETRY = 2        # nb de divisions par 2 du batch en cas d'OOM (0 = desactive)
 
 # ============================================================================
+# 3 bis. HARMONISATION DE L'AUGMENTATION
+# ============================================================================
+# Geometrie (echelle et translation) de RT-DETR et D-FINE :
+#   "reference" : les transforms natives des depots sont conservees mais leurs
+#                 bornes sont calees sur AUG -> echelle x[0.75, 1.25] comme les
+#                 YOLO, au lieu de x[0.25, 3.3] par defaut ;
+#   "affine"    : ZoomOut et IoUCrop remplaces par un RandomAffine portant
+#                 exactement les parametres d'Ultralytics ;
+#   "natif"     : amplitudes d'origine des depots (non comparables).
+DETR_GEOM = "reference"
+
+# Part de son aire d'origine qu'une boite doit conserver apres augmentation pour
+# rester annotee. Ultralytics applique 0.10 en dur : le benchmark le porte a
+# cette valeur. Cf. docs/AUGMENTATION.md pour ce que chaque depot fait.
+MIN_VISIBILITY = 0.20
+
+# ============================================================================
 # 4. INFERENCE ET METRIQUES (identiques pour tous -> chiffres comparables)
 # ============================================================================
 CONF_EVAL = 0.001           # seuil de confiance pour l'export des predictions (mAP)

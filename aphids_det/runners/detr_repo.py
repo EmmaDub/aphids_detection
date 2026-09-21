@@ -33,7 +33,8 @@ from pathlib import Path
 import yaml
 
 from .. import bench, cocoify, config as cfg, evaluate, external
-from ..augment import DETR_COLOR_OP, DETR_HFLIP_OP, DETR_VFLIP_OP
+from ..augment import (DETR_AFFINE_OP, DETR_COLOR_OP, DETR_HFLIP_OP,
+                       DETR_IOUCROP_OP, DETR_VFLIP_OP, DETR_ZOOMOUT_OP)
 from ..folds import fold_val_paths
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
@@ -92,16 +93,24 @@ def load_config_with_includes(path):
     return _deep_merge(merged, doc)
 
 
-def patch_ops(ops):
+def patch_ops(ops, geom=None):
     """Reecrit la liste de transforms d'entrainement du depot.
 
     - `RandomPhotometricDistort` -> `ColorJitter` (memes amplitudes que hsv_s /
       hsv_v = 0.2, sans permutation de canaux) ;
     - `RandomHorizontalFlip` force a p = 0.5, suivi d'un `RandomVerticalFlip` ;
-    - tout le reste (RandomZoomOut, RandomIoUCrop, Sanitize, Resize, conversions)
-      est conserve tel quel : ce sont les equivalents natifs de translate/scale.
+    - la geometrie suit `cfg.DETR_GEOM` : "reference" recale les bornes de
+      `RandomZoomOut` et `RandomIoUCrop` sur `scale` et `translate` d'AUG,
+      "affine" les remplace par un `RandomAffine` aux parametres d'Ultralytics,
+      "natif" laisse les amplitudes du depot ;
+    - le reste (Sanitize, Resize, conversions de fin) est conserve tel quel.
+
+    Renvoie (nouvelles ops, correspondance ancien nom -> nouveau, None si l'op
+    a disparu) ; la correspondance sert a reecrire la politique `stop_epoch`.
     """
+    geom = cfg.DETR_GEOM if geom is None else geom
     new_ops, renamed = [], {}
+    affine_pose = False
     for op in ops:
         t = op.get("type")
         if t == "RandomPhotometricDistort":
@@ -110,8 +119,25 @@ def patch_ops(ops):
         elif t == "RandomHorizontalFlip":
             new_ops.append(dict(DETR_HFLIP_OP))
             new_ops.append(dict(DETR_VFLIP_OP))
+        elif t in ("RandomZoomOut", "RandomIoUCrop"):
+            if geom == "reference":
+                new_ops.append(dict(DETR_ZOOMOUT_OP if t == "RandomZoomOut"
+                                    else DETR_IOUCROP_OP))
+            elif geom == "affine":
+                if not affine_pose:        # une seule affine pour les deux ops
+                    new_ops.append(dict(DETR_AFFINE_OP))
+                    affine_pose = True
+                    renamed[t] = DETR_AFFINE_OP["type"]
+                else:
+                    renamed[t] = None      # op retiree de la politique
+            else:
+                new_ops.append(dict(op))
         else:
             new_ops.append(dict(op))
+    if geom == "affine" and not affine_pose:
+        idx = next((i for i, o in enumerate(new_ops) if o.get("type") == "Resize"),
+                   len(new_ops))
+        new_ops.insert(idx, dict(DETR_AFFINE_OP))
     if not any(o.get("type") == DETR_VFLIP_OP["type"] for o in new_ops):
         # aucune HorizontalFlip dans la config d'origine : on insere les deux
         # miroirs juste avant le Resize final
@@ -151,7 +177,9 @@ def write_config(variant, fold, ds, out_dir, batch, work):
     if isinstance(policy, dict):
         pol = dict(policy)
         pol["epoch"] = stop_epoch
-        pol["ops"] = [renamed.get(o, o) for o in pol.get("ops", [])]
+        # une op renommee suit son nouveau nom ; une op retiree sort de la politique
+        pol["ops"] = [renamed.get(o, o) for o in pol.get("ops", [])
+                      if renamed.get(o, o) is not None]
         ds_cfg["transforms"]["policy"] = pol
 
     over = {

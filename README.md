@@ -151,6 +151,18 @@ plus `batch`, `grad_accum`, `best_epoch`, `epochs_run` et `repo_commit`.
 - **Mosaique.** RF-DETR, RT-DETR et D-FINE n'en proposent aucune : les trois
   s'entrainent sans, les YOLO et YOLOX avec `mosaic = 1`. C'est le principal
   ecart d'augmentation qui subsiste.
+- **Echelle des DETR.** Par defaut `RandomZoomOut` (toile jusqu'a x4) et
+  `RandomIoUCrop` (recadrage jusqu'a 30 % du cote) font varier l'echelle dans
+  x[0.25, 3.3], contre x[0.75, 1.25] pour la reference. `cfg.DETR_GEOM` regle ce
+  point : `"reference"` (defaut) recale les bornes de ces deux transforms sur
+  `scale` et `translate`, `"affine"` les remplace par un `RandomAffine` aux
+  parametres exacts d'Ultralytics, `"natif"` restaure les amplitudes des depots.
+- **Boites tronquees.** `cfg.MIN_VISIBILITY = 0.20` : une boite qui ne conserve
+  pas 20 % de son aire apres augmentation n'est plus annotee. Ultralytics
+  appliquait 10 % (valeur codee en dur, patchee), YOLOX ne retirait que les
+  boites de moins d'un pixel (filtre ajoute apres `random_affine`), et chez les
+  DETR le critere natif de `RandomIoUCrop` -- ne garder que les boites dont le
+  centre tombe dans le recadrage -- garantit deja au moins 25 %.
 - **Early stopping.** Natif chez Ultralytics et RF-DETR (patience 5). RT-DETR,
   D-FINE et YOLOX n'en ont pas : ils consomment les 30 epoques, et le benchmark
   retient l'epoque de meilleur mAP de validation. La selection du modele est

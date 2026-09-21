@@ -21,6 +21,7 @@ import json
 import random
 from pathlib import Path
 
+import numpy as np
 import torch.nn as nn
 
 from yolox.exp import Exp as MyExp
@@ -60,6 +61,38 @@ class AphidsTrainTransform(_TrainTransform):
 
 
 _yolox_data.TrainTransform = AphidsTrainTransform
+
+
+# --------------------------------------------------------------------------
+# Seuil de visibilite des boites tronquees par la mosaique
+# --------------------------------------------------------------------------
+# YOLOX rogne les boites sur les bords sans jamais les retirer : une boite
+# reduite a un eclat reste annotee (seul `TrainTransform` ecarte les cotes
+# < 1 px). Ultralytics, lui, supprime toute boite conservant moins de 10 % de
+# son aire. On aligne YOLOX sur le seuil du benchmark en filtrant a la sortie
+# de `random_affine`, qui recoit les boites avant rognage et les rend dans le
+# meme ordre.
+from yolox.data import data_augment as _da                          # noqa: E402
+from yolox.data.datasets import mosaicdetection as _md              # noqa: E402
+
+_random_affine_origine = _da.random_affine
+
+
+def _random_affine_visibilite(img, targets=(), target_size=(640, 640), **kw):
+    aires = None
+    if len(targets):
+        aires = ((targets[:, 2] - targets[:, 0]) *
+                 (targets[:, 3] - targets[:, 1])).copy()
+    img, sortie = _random_affine_origine(img, targets, target_size, **kw)
+    if aires is not None and len(sortie) == len(aires):
+        visibles = ((sortie[:, 2] - sortie[:, 0]).clip(0) *
+                    (sortie[:, 3] - sortie[:, 1]).clip(0))
+        sortie = sortie[visibles > P["min_visibility"] * np.maximum(aires, 1e-6)]
+    return img, sortie
+
+
+_da.random_affine = _random_affine_visibilite
+_md.random_affine = _random_affine_visibilite
 
 
 # --------------------------------------------------------------------------

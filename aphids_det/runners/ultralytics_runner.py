@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 from .. import bench, cocoify, config as cfg, evaluate
-from ..augment import AUG
+from ..augment import AUG, patch_ultralytics_visibility
 from ..folds import fold_counts, fold_train_paths, fold_val_paths
 
 PROJECT = "yolo_comp"
@@ -93,6 +93,7 @@ def run_fold(modele, weights, fold):
     """Entraine et evalue un modele Ultralytics sur un fold."""
     from ultralytics import YOLO
 
+    patch_ultralytics_visibility()      # seuil de visibilite des boites tronquees
     yml = build_fold_yaml(fold)
     npos, nneg = fold_counts(fold)
     batch, _ = cfg.batch_for("ultralytics")

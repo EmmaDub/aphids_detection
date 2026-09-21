@@ -30,7 +30,8 @@ from pathlib import Path
 import numpy as np
 
 from . import config as cfg, external
-from .augment import AUG, AUG_RFDETR, AUG_YOLOX
+from .augment import (AUG, AUG_RFDETR, AUG_YOLOX, masque_visibilite,
+                      patch_ultralytics_visibility)
 from .folds import fold_train_paths, has_annotations, label_of
 
 Tile = namedtuple("Tile", "path boxes classes")
@@ -138,6 +139,7 @@ def aug_ultralytics(tile, n_aug, pool, seed=0):
     from ultralytics.data.dataset import YOLODataset
     from ultralytics.utils import DEFAULT_CFG
 
+    patch_ultralytics_visibility()      # meme seuil qu'a l'entrainement
     # AUG est passe tel quel, en ignorant les cles que la version installee
     # ne connait pas (cutmix et bgr sont recents).
     over = {k: v for k, v in AUG.items() if hasattr(DEFAULT_CFG, k)}
@@ -338,10 +340,17 @@ def aug_yolox(tile, n_aug, pool, seed=0):
         np.clip(mosaic_labels[:, 2], 0, 2 * input_w, out=mosaic_labels[:, 2])
         np.clip(mosaic_labels[:, 3], 0, 2 * input_h, out=mosaic_labels[:, 3])
 
+        aires = ((mosaic_labels[:, 2] - mosaic_labels[:, 0]) *
+                 (mosaic_labels[:, 3] - mosaic_labels[:, 1])).copy()
         img_t, lab_t = random_affine(
             mosaic_img, mosaic_labels, target_size=(input_w, input_h),
             degrees=AUG_YOLOX["degrees"], translate=AUG_YOLOX["translate"],
             scales=tuple(AUG_YOLOX["mosaic_scale"]), shear=AUG_YOLOX["shear"])
+
+        # Meme filtre que assets/yolox_exp_aphids.py : une boite qui ne conserve
+        # pas MIN_VISIBILITY de son aire apres rognage n'est plus annotee.
+        if len(lab_t) == len(aires):
+            lab_t = lab_t[masque_visibilite(aires, lab_t[:, :4])]
 
         boxes = lab_t[:, :4].copy()
         classes = lab_t[:, 4].astype(int)

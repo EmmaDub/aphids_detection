@@ -80,18 +80,18 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 - **Reference** : `translate = 0.1`
 - **Ultralytics (YOLO26n/11n/12n)** : translate=0.1
 - **RF-DETR-N** : pas de parametre dedie
-- **RT-DETR-R18 / D-FINE-N** : RandomZoomOut + RandomIoUCrop (natifs)
+- **RT-DETR-R18 / D-FINE-N** : position aleatoire du RandomIoUCrop (recadre 80-100% du cote)
 - **YOLOX-Nano** : translate=0.1 (random_affine)
-- **Ecart** : RF-DETR et les DETR n'ont pas de translation parametrable : le recadrage aleatoire natif (IoUCrop/ZoomOut) en tient lieu.
+- **Ecart** : Chez les DETR la translation n'est pas parametrable : elle vient du tirage de position du recadrage, borne par min_scale=0.8. RF-DETR n'a ni translation ni recadrage parametrables.
 
 ### Zoom / echelle
 
-- **Reference** : `scale = 0.25`
-- **Ultralytics (YOLO26n/11n/12n)** : scale=0.25 (facteur [0.75,1.25])
-- **RF-DETR-N** : resize/crop interne
-- **RT-DETR-R18 / D-FINE-N** : RandomZoomOut + RandomIoUCrop (natifs)
+- **Reference** : `scale = 0.25 (facteur [0.75,1.25])`
+- **Ultralytics (YOLO26n/11n/12n)** : scale=0.25
+- **RF-DETR-N** : resize interne, non parametrable
+- **RT-DETR-R18 / D-FINE-N** : RandomZoomOut(side_range=(1.0,1.333)) -> x[0.75,1.0] et RandomIoUCrop(min_scale=0.8) -> x[1.0,1.25]
 - **YOLOX-Nano** : mosaic_scale=(0.75,1.25)
-- **Ecart** : Idem : echelle non parametrable pour RF-DETR et les DETR.
+- **Ecart** : Bornes des transforms natives recalees sur la reference (cfg.DETR_GEOM='reference'). Par defaut les depots tirent dans x[0.25,3.3], sans commune mesure avec la reference ; cfg.DETR_GEOM='natif' restaure ce comportement, 'affine' remplace les deux ops par un RandomAffine aux parametres exacts d'Ultralytics. RF-DETR reste sans zoom parametrable.
 
 ### Cisaillement / perspective
 
@@ -138,6 +138,24 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 - **YOLOX-Nano** : enable_mixup=False, mixup_prob=0.0
 - **Ecart** : Aucun (YOLOX active le mixup par defaut : desactive ici).
 
+### Boites tronquees par l'augmentation
+
+- **Reference** : `conserver >= 20% de l'aire d'origine`
+- **Ultralytics (YOLO26n/11n/12n)** : box_candidates(area_thr=0.2) -- le 0.10 code en dur est patche par le benchmark
+- **RF-DETR-N** : sans objet : flips et couleur ne tronquent aucune boite
+- **RT-DETR-R18 / D-FINE-N** : RandomIoUCrop ne garde que les boites dont le CENTRE tombe dans le recadrage : une boite conservee garde donc au moins 25% de son aire, deja plus strict que le seuil
+- **YOLOX-Nano** : filtre ajoute a la sortie de random_affine (seuil 0.2)
+- **Ecart** : Regle harmonisee, par trois mecanismes differents. Sans elle, YOLOX et les DETR gardaient des eclats de boite de 1 px.
+
+### Remplissage des bords vides
+
+- **Reference** : `gris 114 (YOLO)`
+- **Ultralytics (YOLO26n/11n/12n)** : 114
+- **RF-DETR-N** : sans objet
+- **RT-DETR-R18 / D-FINE-N** : fill=114 (les depots utilisent du noir, fill=0)
+- **YOLOX-Nano** : 114 (borderValue de random_affine)
+- **Ecart** : Aucun apres harmonisation.
+
 ### Permutation BGR / auto-augment
 
 - **Reference** : `bgr = 0, auto_augment = None`
@@ -161,15 +179,22 @@ figure.
    (verifie dans leurs registres de transforms). Les YOLO et YOLOX s'entrainent
    donc avec `mosaic = 1`, les trois DETR sans. C'est l'ecart le plus lourd de
    consequences : a noter dans toute publication des resultats.
-2. **Translation et echelle.** `translate = 0.1` et `scale = 0.25` n'ont pas
-   d'equivalent parametrable chez RF-DETR et les DETR. Leurs recadrages natifs
-   (`RandomIoUCrop`, `RandomZoomOut`) jouent ce role, avec des amplitudes qui
-   leur sont propres.
+2. **Translation et echelle chez RF-DETR.** RF-DETR n'expose ni translation ni
+   zoom : son redimensionnement interne est le seul effet d'echelle, et il n'est
+   pas reglable depuis `aug_config`. Pour RT-DETR et D-FINE en revanche, les
+   bornes de `RandomZoomOut` et `RandomIoUCrop` sont desormais calees sur la
+   reference (`cfg.DETR_GEOM = "reference"`), ce qui ramene leur echelle a
+   x[0.75, 1.25] : par defaut ces deux ops tiraient dans x[0.25, 3.3], avec une
+   deformation du rapport d'aspect jusqu'a 2:1 et un remplissage noir.
 3. **Forme de la perturbation HSV.** YOLO applique un gain multiplicatif
    (x[0.8, 1.2]) ; YOLOX un decalage additif (+/-51 sur 255) et tire de plus
    l'application de chaque canal a pile ou face. Les amplitudes sont du meme
    ordre, la loi ne l'est pas.
-4. **Coupure des augmentations en fin d'entrainement.** Ultralytics coupe la
+4. **Forme de la translation chez les DETR.** Elle n'est pas parametrable : elle
+   resulte du tirage de position du recadrage `RandomIoUCrop`, borne par
+   `min_scale = 0.8`. L'amplitude est du meme ordre que `translate = 0.1`, la loi
+   ne l'est pas.
+5. **Coupure des augmentations en fin d'entrainement.** Ultralytics coupe la
    mosaique sur les 10 dernieres epoques (`close_mosaic = 10`). Le benchmark
    aligne YOLOX (`no_aug_epochs = 10`) et les DETR (politique `stop_epoch` a
    l'epoque 20 sur 30) sur cette convention.

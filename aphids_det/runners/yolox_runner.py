@@ -51,6 +51,7 @@ def write_exp(repo, fold, ds, out_dir):
         "num_classes": len(cfg.CLASS_NAMES),
         "num_workers": 2,
         "seed": cfg.SEED,
+        "min_visibility": cfg.MIN_VISIBILITY,
         "imgsz": cfg.IMGSZ,
         "epochs": cfg.EPOCHS,
         "output_dir": str(out_dir),

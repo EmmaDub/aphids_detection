@@ -51,15 +51,22 @@ figure.
    (verifie dans leurs registres de transforms). Les YOLO et YOLOX s'entrainent
    donc avec `mosaic = 1`, les trois DETR sans. C'est l'ecart le plus lourd de
    consequences : a noter dans toute publication des resultats.
-2. **Translation et echelle.** `translate = 0.1` et `scale = 0.25` n'ont pas
-   d'equivalent parametrable chez RF-DETR et les DETR. Leurs recadrages natifs
-   (`RandomIoUCrop`, `RandomZoomOut`) jouent ce role, avec des amplitudes qui
-   leur sont propres.
+2. **Translation et echelle chez RF-DETR.** RF-DETR n'expose ni translation ni
+   zoom : son redimensionnement interne est le seul effet d'echelle, et il n'est
+   pas reglable depuis `aug_config`. Pour RT-DETR et D-FINE en revanche, les
+   bornes de `RandomZoomOut` et `RandomIoUCrop` sont desormais calees sur la
+   reference (`cfg.DETR_GEOM = "reference"`), ce qui ramene leur echelle a
+   x[0.75, 1.25] : par defaut ces deux ops tiraient dans x[0.25, 3.3], avec une
+   deformation du rapport d'aspect jusqu'a 2:1 et un remplissage noir.
 3. **Forme de la perturbation HSV.** YOLO applique un gain multiplicatif
    (x[0.8, 1.2]) ; YOLOX un decalage additif (+/-51 sur 255) et tire de plus
    l'application de chaque canal a pile ou face. Les amplitudes sont du meme
    ordre, la loi ne l'est pas.
-4. **Coupure des augmentations en fin d'entrainement.** Ultralytics coupe la
+4. **Forme de la translation chez les DETR.** Elle n'est pas parametrable : elle
+   resulte du tirage de position du recadrage `RandomIoUCrop`, borne par
+   `min_scale = 0.8`. L'amplitude est du meme ordre que `translate = 0.1`, la loi
+   ne l'est pas.
+5. **Coupure des augmentations en fin d'entrainement.** Ultralytics coupe la
    mosaique sur les 10 dernieres epoques (`close_mosaic = 10`). Le benchmark
    aligne YOLOX (`no_aug_epochs = 10`) et les DETR (politique `stop_epoch` a
    l'epoque 20 sur 30) sur cette convention.

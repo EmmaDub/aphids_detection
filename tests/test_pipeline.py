@@ -148,4 +148,40 @@ import pandas as pd
 cols = list(pd.read_csv(cfg.CSV_CV).columns)
 assert cols[:6] == ["date", "modele", "framework", "fold", "map50_macro", "map5095_macro"]
 
+# --- 11. geometrie des DETR : les trois modes ---
+for mode, attendu in [("reference", {"RandomZoomOut", "RandomIoUCrop"}),
+                      ("affine", {"RandomAffine"}),
+                      ("natif", {"RandomZoomOut", "RandomIoUCrop"})]:
+    ops_mode, _ren = detr_repo.patch_ops(ops_v2, geom=mode)
+    noms = {o["type"] for o in ops_mode}
+    assert attendu <= noms, (mode, noms)
+    geo = {o["type"]: o for o in ops_mode}
+    if mode == "reference":
+        # bornes calees sur scale=0.25 : objet dans x[0.75, 1.25]
+        assert geo["RandomZoomOut"]["side_range"] == [1.0, 1.333], geo["RandomZoomOut"]
+        assert geo["RandomZoomOut"]["fill"] == 114, "remplissage gris comme YOLO"
+        assert geo["RandomIoUCrop"]["min_scale"] == 0.8, geo["RandomIoUCrop"]
+        assert geo["RandomIoUCrop"]["max_aspect_ratio"] == 1.1, "aspect quasi isotrope"
+    if mode == "affine":
+        assert geo["RandomAffine"]["scale"] == [0.75, 1.25], geo["RandomAffine"]
+        assert geo["RandomAffine"]["translate"] == [0.1, 0.1]
+        assert "RandomIoUCrop" not in noms and "RandomZoomOut" not in noms
+    if mode == "natif":
+        assert geo["RandomZoomOut"] == {"type": "RandomZoomOut", "fill": 0}
+print("[geometrie DETR] reference / affine / natif : bornes conformes")
+
+# --- 12. seuil de visibilite des boites tronquees ---
+import numpy as np
+
+from aphids_det.augment import masque_visibilite
+
+aires = np.array([100.0, 100.0, 100.0])
+apres = np.array([[0, 0, 10, 10],      # 100 % visible -> gardee
+                  [0, 0, 10, 3],       #  30 % -> gardee (seuil 20 %)
+                  [0, 0, 10, 1]])      #  10 % -> retiree
+m = masque_visibilite(aires, apres, min_visibility=0.20)
+print(f"[visibilite 20%] gardees = {m.tolist()}")
+assert m.tolist() == [True, True, False], m
+assert masque_visibilite(aires, apres, min_visibility=0.5).tolist() == [True, False, False]
+
 print("\nTOUS LES TESTS PASSENT")

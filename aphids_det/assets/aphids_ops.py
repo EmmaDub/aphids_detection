@@ -41,5 +41,8 @@ def _register(cls):
 
 RandomVerticalFlip = _register(T.RandomVerticalFlip)
 ColorJitter = _register(T.ColorJitter)
+# Utilisee uniquement par cfg.DETR_GEOM == "affine" : translate et scale aux
+# parametres exacts d'Ultralytics, a la place de RandomZoomOut + RandomIoUCrop.
+RandomAffine = _register(T.RandomAffine)
 
-__all__ = ["RandomVerticalFlip", "ColorJitter"]
+__all__ = ["RandomVerticalFlip", "ColorJitter", "RandomAffine"]
