@@ -168,7 +168,10 @@ def faux_effet(sans=()):
     dans `sans` (pour verifier le rendu des cases 'non expose')."""
     def pipeline(tile, effet, pool=None):
         if effet in sans:
-            return None
+            return "reglage absent\ndu framework (test)"
+        if effet == "mosaique":
+            img = np.asarray(Image.open(tile.path).convert("RGB"))
+            return img, tile.boxes.copy(), tile.classes.copy()
         img = visualize._read_rgb(tile.path)
         bx = tile.boxes.copy()
         if effet == "saturation":
@@ -200,12 +203,22 @@ fig_effets = visualize.compare_effets(
     fold=0, tile=t0, pool=vivier, save=png_effets,
     pipelines={
         "YOLO26n / YOLO11n / YOLO12n": faux_effet(),
-        "RF-DETR-N": faux_effet(sans=("echelle_min", "echelle_max", "translation")),
-        "RT-DETR-R18 / D-FINE-N": faux_effet(sans=("translation",)),
+        "RF-DETR-N": faux_effet(sans=("echelle_min", "echelle_max",
+                                      "translation", "mosaique")),
+        "RT-DETR-R18 / D-FINE-N": faux_effet(sans=("translation", "mosaique")),
         "YOLOX-Nano": faux_effet(),
     })
 attendu = len(visualize.EFFETS) + 1
 assert fig_effets.axes[0].get_title() == "Tuile d'origine"
+
+# les colonnes doivent porter le vocabulaire de la table d'augmentation
+from aphids_det import augment                                    # noqa: E402
+effets_table = set(augment.table()["effet"])
+for titre, cle, nom_table in visualize.EFFETS:
+    assert nom_table in effets_table, (nom_table, sorted(effets_table))
+    assert titre.startswith(nom_table), (titre, nom_table)
+print(f"colonnes conformes a augment.table() : "
+      f"{[e[2] for e in visualize.EFFETS]}")
 assert png_effets.exists() and png_effets.stat().st_size > 50_000
 print(f"figure effets : {png_effets.name} "
       f"({png_effets.stat().st_size/1e3:.0f} ko, {attendu} colonnes)")

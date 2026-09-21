@@ -503,14 +503,18 @@ def compare(fold=0, n_aug=4, seed=0, pipelines=None, tile=None, pool=None,
 #     echelle avec `random.uniform` / `np.random.uniform` sans parametre de
 #     borne fixe).
 
+# (titre de colonne, cle interne, nom de l'effet dans augment.table())
+# Le troisieme champ garantit que la figure et la table d'augmentation parlent
+# de la meme chose : tests/test_figure.py verifie la correspondance.
 EFFETS = [
-    ("Saturation x1.2", "saturation"),
-    ("Luminosite x1.2", "luminosite"),
-    ("Miroir vertical", "flipud"),
-    ("Miroir horizontal", "fliplr"),
-    ("Echelle x0.75", "echelle_min"),
-    ("Echelle x1.25", "echelle_max"),
-    ("Translation +10%", "translation"),
+    ("Saturation x1.2", "saturation", "Saturation"),
+    ("Luminosite / valeur x1.2", "luminosite", "Luminosite / valeur"),
+    ("Miroir vertical", "flipud", "Miroir vertical"),
+    ("Miroir horizontal", "fliplr", "Miroir horizontal"),
+    ("Zoom / echelle x0.75", "echelle_min", "Zoom / echelle"),
+    ("Zoom / echelle x1.25", "echelle_max", "Zoom / echelle"),
+    ("Translation +10%", "translation", "Translation"),
+    ("Mosaique", "mosaique", "Mosaique"),
 ]
 
 _GAIN_SAT = 1 + AUG["hsv_s"]        # 1.2
@@ -522,10 +526,17 @@ _ECHELLE = {"echelle_min": 1 - AUG["scale"], "echelle_max": 1 + AUG["scale"]}
 def _tirages_extremes(borne="max", valeur_torch=0.5):
     """Force les tirages aleatoires a leur borne, le temps d'un appel.
 
-    `borne="max"` renvoie la borne superieure de chaque `uniform`, `"min"` la
-    borne inferieure. `torch.rand` est fixe a `valeur_torch` (0.5 = position
-    centree pour les recadrages torchvision) et `np.random.randint` a 1, pour
-    que le decalage HSV de YOLOX s'applique sur tous les canaux.
+    `borne` vaut "max" (borne superieure de chaque `uniform`), "min" (borne
+    inferieure) ou "milieu" (moyenne des deux, utile pour centrer une mosaique).
+    `torch.rand` est fixe a `valeur_torch` (0.5 = recadrage centre cote
+    torchvision) et `np.random.randint` a 1, pour que le decalage HSV de YOLOX
+    porte sur tous ses canaux.
+
+    Exception sur l'intervalle (0, 1), toujours ramene a 1.0 : Ultralytics
+    l'utilise comme tirage de probabilite, et notamment pour decider de la
+    conversion BGR -> RGB (`random.uniform(0, 1) > hyp.bgr`, avec bgr = 0).
+    Le forcer a 0 rendait des images aux canaux rouge et bleu echanges, et
+    reveillait les transforms desactivees (p = 0).
     """
     import random as _random
 
@@ -538,11 +549,20 @@ def _tirages_extremes(borne="max", valeur_torch=0.5):
     except ImportError:
         _torch, tr = None, None
 
+    def _borne(a, b):
+        if borne == "max":
+            return b
+        if borne == "min":
+            return a
+        return (a + b) / 2
+
     def faux_uniform(a, b):
-        return b if borne == "max" else a
+        if (float(a), float(b)) == (0.0, 1.0):     # tirage de probabilite
+            return 1.0
+        return _borne(a, b)
 
     def faux_np_uniform(low=0.0, high=1.0, size=None):
-        v = high if borne == "max" else low
+        v = _borne(low, high)
         return _np.full(size, v, dtype=float) if size is not None else float(v)
 
     def faux_randint(low, high=None, size=None, dtype=int):
@@ -624,11 +644,15 @@ def effet_ultralytics(tile, effet, pool=None):
         "echelle_min": ({"scale": AUG["scale"]}, "min"),
         "echelle_max": ({"scale": AUG["scale"]}, "max"),
         "translation": ({"translate": AUG["translate"]}, "max"),
+        # mosaique : centre de collage au milieu du canevas 1280, echelle 1,
+        # et recadrage central a 640 -- c'est ce que fait RandomPerspective.
+        "mosaique": ({"mosaic": 1.0}, "milieu"),
     }
     if effet not in reglages:
-        return None
+        return f"effet inconnu : {effet}"
     over, borne = reglages[effet]
     ds, idx = _ultralytics_dataset(tile, pool, over)
+    random.seed(cfg.SEED)                   # choix des 3 autres tuiles de mosaique
     with _tirages_extremes(borne):
         return _ultralytics_sortie(ds, idx)
 
@@ -648,8 +672,11 @@ def effet_rfdetr(tile, effet, pool=None):
         t = A.VerticalFlip(p=1.0)
     elif effet == "fliplr":
         t = A.HorizontalFlip(p=1.0)
+    elif effet == "mosaique":
+        return "mosaique absente\ndu framework"
     else:
-        return None                     # echelle et translation : non exposees
+        return ("echelle et translation\nnon reglables : elles\nviennent du "
+                "recadrage\ninterne du framework")
 
     pipe = A.Compose([t], bbox_params=A.BboxParams(
         format="pascal_voc", label_fields=["classes"],
@@ -685,8 +712,11 @@ def effet_detr(tile, effet, pool=None):
         ops = [{"type": "RandomIoUCrop", "min_scale": r, "max_scale": r,
                 "min_aspect_ratio": 0.9, "max_aspect_ratio": 1.1,
                 "sampler_options": [0.0], "p": 1.0}, sanitize, resize]
+    elif effet == "mosaique":
+        return "mosaique absente\ndes deux depots"
     else:
-        return None                     # translation : liee au tirage du recadrage
+        return ("pas de reglage de\ntranslation : elle vient\ndu tirage de "
+                "position\nde RandomIoUCrop")
 
     import torch
     from torchvision import tv_tensors
@@ -739,8 +769,35 @@ def effet_yolox(tile, effet, pool=None):
                                      degrees=0.0, translate=t, scales=(s, s),
                                      shear=0.0)
         boxes, classes = lab[:, :4], lab[:, 4].astype(int)
+    elif effet == "mosaique":
+        # Mosaique 2x2 a centre fixe (milieu du canevas 1280), puis l'affine de
+        # YOLOX a l'echelle 1. Son affine etant ancree en (0, 0), un translate
+        # de -0.5 ramene la fenetre 640 au centre du canevas -- ce que fait
+        # RandomPerspective d'Ultralytics par construction : les deux cases
+        # montrent alors la meme zone, et sont comparables.
+        quatre = [tile] + [t for t in (pool or []) if t.path != tile.path][:3]
+        while len(quatre) < 4:
+            quatre.append(tile)
+        canevas = np.full((2 * cfg.IMGSZ, 2 * cfg.IMGSZ, 3), 114, np.uint8)
+        etiquettes = []
+        for i, t in enumerate(quatre):
+            im = cv2.imread(str(t.path))
+            h, w = im.shape[:2]
+            ox, oy = (i % 2) * cfg.IMGSZ, (i // 2) * cfg.IMGSZ
+            canevas[oy:oy + h, ox:ox + w] = im
+            lab = np.zeros((len(t.boxes), 5), np.float32)
+            if len(t.boxes):
+                lab[:, :4] = t.boxes + np.array([ox, oy, ox, oy])
+                lab[:, 4] = t.classes
+            etiquettes.append(lab)
+        lab = np.concatenate(etiquettes, 0)
+        with _tirages_extremes("max"):
+            img, lab = random_affine(canevas, lab, target_size=(cfg.IMGSZ, cfg.IMGSZ),
+                                     degrees=0.0, translate=-0.5, scales=(1.0, 1.0),
+                                     shear=0.0)
+        boxes, classes = lab[:, :4], lab[:, 4].astype(int)
     else:
-        return None
+        return f"effet inconnu : {effet}"
 
     return cv2.cvtColor(np.ascontiguousarray(img), cv2.COLOR_BGR2RGB), boxes, classes
 
@@ -776,13 +833,14 @@ def compare_effets(fold=0, tile=None, pool=None, effets=None, pipelines=None,
     resultats = {}
     for nom, fonction in pipelines.items():
         ligne = {}
-        for _titre, effet in effets:
+        for entree in effets:
+            effet = entree[1]
             try:
                 ligne[effet] = fonction(tile, effet, pool)
             except Exception as e:
                 print(f"  {nom} / {effet} : {type(e).__name__}: {e}")
-                ligne[effet] = None
-        faits = sum(1 for v in ligne.values() if v is not None)
+                ligne[effet] = f"echec : {type(e).__name__}"
+        faits = sum(1 for v in ligne.values() if not isinstance(v, (str, type(None))))
         print(f"  {nom} : {faits}/{len(effets)} effets reproduits")
         resultats[nom] = ligne
 
@@ -797,15 +855,18 @@ def compare_effets(fold=0, tile=None, pool=None, effets=None, pipelines=None,
         axes[r][0].set_ylabel(textwrap.fill(nom, 18), fontsize=9,
                               color=INK_PRIMARY, rotation=0, ha="right",
                               va="center", labelpad=10)
-        for c, (titre, effet) in enumerate(effets, start=1):
+        for c, entree in enumerate(effets, start=1):
+            titre, effet = entree[0], entree[1]
             ax = axes[r][c]
             res = ligne.get(effet)
-            if res is None:
+            if res is None or isinstance(res, str):
+                # Pas d'image : le framework n'expose pas ce reglage. La raison
+                # est ecrite dans la case, c'est une information a part entiere.
                 ax.set_facecolor(SURFACE)
                 _frame(ax)
-                ax.text(0.5, 0.5, "non expose\npar le framework", fontsize=7.5,
+                ax.text(0.5, 0.5, res or "reglage absent", fontsize=7,
                         color=INK_MUTED, ha="center", va="center",
-                        transform=ax.transAxes)
+                        transform=ax.transAxes, linespacing=1.5)
             else:
                 _draw(ax, *res)
             if r == 0:
