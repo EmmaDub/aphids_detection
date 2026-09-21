@@ -13,6 +13,7 @@ modeles du benchmark s'entrainent donc exactement sur les memes tuiles.
 """
 
 import random
+import re
 import zipfile
 from pathlib import Path
 
@@ -162,18 +163,55 @@ def check_folds():
 
 
 # ------------------------------------------------------- listes train figees
-def fold_train_paths(fold, neg_ratio=None):
+def rebase(line, root=None):
+    """Replace une entree de liste figee sous la racine de folds courante.
+
+    Les listes figees contiennent des chemins ABSOLUS, ecrits par la session qui
+    les a creees (les notebooks d'origine utilisaient `/content/kfold_yolo/...`).
+    Seule compte la queue du chemin -- `fold_2/images/x.jpg` ou
+    `_extra_train/images/y.jpg` -- qui identifie la tuile : on la regreffe sur
+    `cfg.FOLDS_ROOT`. La SELECTION de tuiles reste donc exactement celle qui a
+    ete figee, quel que soit l'endroit ou les folds ont ete reconstruits.
+    """
+    root = Path(cfg.FOLDS_ROOT if root is None else root)
+    parts = [p for p in re.split(r"[\\/]+", str(line).strip()) if p]
+    if len(parts) >= 3:
+        return str(root.joinpath(*parts[-3:]))
+    return str(line).strip()
+
+
+def read_frozen(txt_frozen, verbose=True):
+    """Relit une liste figee et la regreffe sur la racine de folds courante."""
+    lignes = [l for l in Path(txt_frozen).read_text().splitlines() if l.strip()]
+    chemins = [rebase(l) for l in lignes]
+    presents = [p for p in chemins if Path(p).exists()]
+    manquantes = len(chemins) - len(presents)
+    if verbose and manquantes:
+        alerte = "  ATTENTION : " if manquantes > 0.05 * len(chemins) else "  "
+        print(f"{alerte}liste figee {Path(txt_frozen).name} : {len(presents)}/"
+              f"{len(chemins)} tuiles retrouvees sous {cfg.FOLDS_ROOT}"
+              + (" -- l'entrainement ne portera pas sur le jeu figé complet, "
+                 "lancer folds.diagnose()" if alerte.strip() else ""))
+    if not presents:
+        raise RuntimeError(
+            f"Aucune des {len(chemins)} tuiles de {txt_frozen} n'existe sous "
+            f"{cfg.FOLDS_ROOT}.\nLes folds ont-ils ete construits dans cette "
+            f"session ? Lancer folds.build_folds(), puis folds.diagnose().")
+    return presents
+
+
+def fold_train_paths(fold, neg_ratio=None, verbose=True):
     """Liste des tuiles de train du fold (4 autres folds + _extra_train).
 
     Les fonds sont sous-echantillonnes a `neg_ratio` x positifs. La liste est
-    figee sur le Drive et relue telle quelle aux appels suivants : elle est
-    PARTAGEE par tous les modeles du benchmark.
+    figee sur le Drive et relue aux appels suivants : elle est PARTAGEE par tous
+    les modeles du benchmark, et par les notebooks d'origine.
     """
     neg_ratio = cfg.NEG_RATIO if neg_ratio is None else neg_ratio
     root = Path(cfg.FOLDS_ROOT)
     txt_frozen = Path(cfg.SPLITS_FROZEN) / f"train_fold{fold}_neg{neg_ratio}.txt"
     if txt_frozen.exists():
-        return [l for l in txt_frozen.read_text().splitlines() if l.strip()]
+        return read_frozen(txt_frozen, verbose=verbose)
 
     pos, neg = [], []
     for i in range(cfg.N_CV_FOLDS):
@@ -207,3 +245,53 @@ def fold_counts(fold, neg_ratio=None):
     paths = fold_train_paths(fold, neg_ratio)
     npos = sum(1 for p in paths if has_annotations(label_of(p)))
     return npos, len(paths) - npos
+
+
+def diagnose(fold=0, neg_ratio=None):
+    """Etat des folds et des listes figees : a lancer quand un fold semble vide.
+
+    Repond aux trois questions qui bloquent en pratique : les folds sont-ils
+    construits, les labels sont-ils bien lies, et les listes figees du Drive
+    retombent-elles sur les tuiles de cette session ?
+    """
+    neg_ratio = cfg.NEG_RATIO if neg_ratio is None else neg_ratio
+    root = Path(cfg.FOLDS_ROOT)
+    print(f"Racine des folds : {root}")
+    print(f"  existe : {root.exists()}\n")
+
+    print("Contenu par fold (images / labels non vides) :")
+    total_lbl = 0
+    for f in range(cfg.N_CV_FOLDS + 1):
+        imgs = list((root / f"fold_{f}" / "images").glob("*")) \
+            if (root / f"fold_{f}" / "images").exists() else []
+        npuc = sum(1 for im in imgs
+                   if has_annotations(root / f"fold_{f}" / "labels" / f"{im.stem}.txt"))
+        total_lbl += npuc
+        print(f"  fold_{f:<2} {len(imgs):>6} images   {npuc:>6} avec label")
+    ex = root / "_extra_train"
+    if (ex / "images").exists():
+        imgs = list((ex / "images").glob("*"))
+        npuc = sum(1 for im in imgs if has_annotations(ex / "labels" / f"{im.stem}.txt"))
+        total_lbl += npuc
+        print(f"  _extra_train {len(imgs):>3} images   {npuc:>6} avec label")
+    if total_lbl == 0:
+        print("\n  ATTENTION : aucun label lie. Verifier labels_dir et la colonne "
+              "label_file du CSV de split, puis relancer folds.build_folds().")
+
+    txt = Path(cfg.SPLITS_FROZEN) / f"train_fold{fold}_neg{neg_ratio}.txt"
+    print(f"\nListe figee du fold {fold} : {txt}")
+    if not txt.exists():
+        print("  absente : elle sera calculee et ecrite au premier appel.")
+        return
+    lignes = [l for l in txt.read_text().splitlines() if l.strip()]
+    bruts = sum(1 for l in lignes if Path(l.strip()).exists())
+    rebases = [rebase(l) for l in lignes]
+    ok = sum(1 for p in rebases if Path(p).exists())
+    print(f"  {len(lignes)} entrees | {bruts} valides telles quelles | "
+          f"{ok} apres regreffe sur la racine courante")
+    if lignes:
+        print(f"  exemple d'entree figee : {lignes[0]}")
+        print(f"  regreffee              : {rebases[0]}")
+    if ok:
+        npos = sum(1 for p in rebases if Path(p).exists() and has_annotations(label_of(p)))
+        print(f"  dont {npos} tuiles annotees et {ok - npos} fonds")

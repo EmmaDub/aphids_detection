@@ -82,8 +82,18 @@ Avant une campagne, la plomberie se verifie sans GPU ni donnees :
 
 ```bash
 python tests/test_pipeline.py   # folds, conversion COCO, metriques, CSV
+python tests/test_rebase.py     # relecture des listes figees d'une autre session
 python tests/test_figure.py     # mise en page de la figure d'augmentations
 ```
+
+**Si un fold parait vide**, `folds.diagnose(fold=0)` affiche en une cellule les
+images et labels presents par fold, et ce que donnent les listes figees du Drive
+une fois regreffees sur la racine de folds courante. Les listes figees
+contiennent en effet des chemins absolus ecrits par la session qui les a creees
+(les notebooks d'origine travaillaient dans `/content/kfold_yolo/...`, ce depot
+dans `/content/aphids_work/folds/...`) : seule la queue du chemin
+`fold_i/images/nom.jpg` est utilisee, et elle est regreffee automatiquement, de
+sorte que la selection de tuiles figee est respectee a l'identique.
 
 ## Structure
 

@@ -104,8 +104,12 @@ def sample_tiles(fold=0, n=1, seed=0, min_boxes=2, pool_size=200):
     """
     paths = [p for p in fold_train_paths(fold) if has_annotations(label_of(p))]
     if not paths:
-        raise RuntimeError("Aucune tuile annotee dans le train de ce fold : "
-                           "les folds ont-ils ete construits ?")
+        raise RuntimeError(
+            f"Aucune tuile annotee dans le train du fold {fold}.\n"
+            "Causes habituelles : folds non construits dans cette session "
+            "(folds.build_folds()), ou labels non lies (colonne label_file du CSV "
+            "de split / chemin labels_dir).\n"
+            "Pour trancher : from aphids_det import folds ; folds.diagnose()")
     rng = random.Random(seed)
     rng.shuffle(paths)
 

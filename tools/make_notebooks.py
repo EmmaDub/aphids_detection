@@ -157,8 +157,18 @@ if not Path(cfg.BG_DIR).exists():
 
 CELL_FOLDS = code("""
 # --- Construction des folds (symlinks locaux, a refaire a chaque session Colab) ---
+# Les listes de train figees sur le Drive contiennent des chemins absolus ecrits
+# par la session qui les a creees : ils sont automatiquement regreffes sur la
+# racine de folds courante, la selection de tuiles reste donc identique.
 from aphids_det import folds
 folds.build_folds()
+""")
+
+CELL_DIAGNOSE = code("""
+# --- Diagnostic : a lancer si un fold parait vide ---
+# Affiche images/labels par fold, et ce que donnent les listes figees du Drive
+# une fois regreffees sur la racine courante.
+folds.diagnose(fold=0)
 """)
 
 CELL_WANDB = code("""
@@ -219,9 +229,11 @@ NOTEBOOKS["00_preparation_folds.ipynb"] = notebook(
 """),
         wandb=False,
     ) + [
+        CELL_DIAGNOSE,
         code("""
 # --- Verification de la plomberie (sans GPU ni donnees) ---
 !python {REPO_DIR}/tests/test_pipeline.py
+!python {REPO_DIR}/tests/test_rebase.py
 """),
         md("## Datasets COCO et table d'augmentation"),
         code("""
@@ -357,6 +369,7 @@ NOTEBOOKS["07_visualisation_augmentations.ipynb"] = notebook(
 """),
         wandb=False,
     ) + [
+        CELL_DIAGNOSE,
         md("## Figure comparative\n\n"
            "A regarder en priorite : la **mosaique** (presente pour YOLO et YOLOX, "
            "absente des trois DETR), les **miroirs verticaux** (ajoutes par le "
