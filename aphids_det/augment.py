@@ -194,6 +194,67 @@ _TABLE = [
          detr="fill=114 (les depots utilisent du noir, fill=0)",
          yolox="114 (borderValue de random_affine)",
          ecart="Aucun apres harmonisation."),
+    # ------------------------------------------------------------------
+    # Effets ABSENTS de la reference, mais appliques par certains depots.
+    # Ce sont eux qui biaisent une comparaison sans qu'on les voie.
+    # ------------------------------------------------------------------
+    dict(effet="Transforms albumentations d'Ultralytics", hors_reference=True,
+         reference="absent",
+         ultralytics="Blur, MedianBlur, ToGray et CLAHE, a p=0.01 chacun, "
+                     "appliques SI le paquet albumentations est importable",
+         rfdetr="aucun equivalent", detr="aucun equivalent",
+         yolox="aucun equivalent",
+         ecart="Environ 4 % des tuiles recoivent un flou, un passage en niveaux "
+               "de gris ou une egalisation d'histogramme -- chez les YOLO "
+               "seulement. Le bloc est silencieux : il s'active selon la "
+               "presence d'albumentations dans le runtime. "
+               "augment.etat_albumentations() le signale et la colonne notes du "
+               "CSV enregistre ce qui s'est reellement passe."),
+    dict(effet="Multi-echelle par lot", hors_reference=True,
+         reference="absent : imgsz fixe a 640",
+         ultralytics="multi_scale = False par defaut en detection",
+         rfdetr="multi_scale et expanded_scales sont a True par defaut : la "
+                "resolution change d'un lot a l'autre. DESACTIVES par le "
+                "benchmark (repli silencieux si la version les refuse)",
+         detr="BatchImageCollateFunction neutralise par les configs retenues "
+              "(scales: ~ pour RT-DETRv2-R18, base_size_repeat: ~ pour D-FINE-N)",
+         yolox="multiscale_range mis a 0 par le benchmark (defaut 5, soit "
+               "+/-160 px autour de 640)",
+         ecart="Sans cette harmonisation, RF-DETR aurait ete le seul a voir "
+               "plusieurs resolutions, et YOLOX le seul autre a varier de "
+               "+/-160 px."),
+    dict(effet="Coupure des augmentations en fin d'entrainement", hors_reference=True,
+         reference="close_mosaic = 10 (defaut Ultralytics)",
+         ultralytics="close_mosaic=10 : mosaique coupee sur les 10 dernieres epoques",
+         rfdetr="aucun mecanisme de ce type",
+         detr="politique stop_epoch : ColorJitter, ZoomOut et IoUCrop coupes a "
+              "partir de l'epoque 20 sur 30",
+         yolox="no_aug_epochs=10",
+         ecart="Aligne sur les 10 dernieres epoques partout, sauf RF-DETR qui "
+               "n'offre pas ce reglage."),
+    dict(effet="Plage des pixels et normalisation", hors_reference=True,
+         reference="non specifie (pretraitement, pas augmentation)",
+         ultralytics="0-1, RGB",
+         rfdetr="0-1 puis normalisation ImageNet (mean/std)",
+         detr="0-1, sans normalisation ImageNet (ConvertPILImage scale=True)",
+         yolox="0-255 bruts, BGR, sans normalisation",
+         ecart="Non harmonise, et il ne FAUT pas l'harmoniser : chaque depot "
+               "doit garder le pretraitement de ses poids COCO, sans quoi le "
+               "transfert est casse."),
+    dict(effet="Mise a 640 de la tuile", hors_reference=True,
+         reference="imgsz = 640",
+         ultralytics="letterbox, ratio preserve, remplissage 114",
+         rfdetr="redimensionnement carre",
+         detr="Resize [640, 640]",
+         yolox="letterbox, ratio preserve, remplissage 114",
+         ecart="Sans consequence ici : les tuiles sont deja carrees, 640 x 640."),
+    dict(effet="Effacement aleatoire et copier-coller d'instances", hors_reference=True,
+         reference="absents",
+         ultralytics="erasing=0.4 mais classification uniquement ; "
+                     "copy_paste=0.0 et exige des masques de segmentation",
+         rfdetr="absents", detr="absents", yolox="absents",
+         ecart="Aucun effet en detection : ces deux reglages ne sont jamais "
+               "atteints par le pipeline utilise ici."),
     dict(effet="Permutation BGR / auto-augment", reference="bgr = 0, auto_augment = None",
          ultralytics="bgr=0.0, auto_augment=None",
          rfdetr="aucun",
@@ -205,16 +266,38 @@ _TABLE = [
 ]
 
 
-def table(libelles=True):
+def table(libelles=True, perimetre=None):
     """Table de correspondance des augmentations (DataFrame).
 
     Les colonnes portent les memes libelles de modeles que les figures du
     notebook 07 (`libelles=False` garde les cles internes).
+
+    La colonne `perimetre` distingue les effets de la reference de ceux qu'un
+    depot applique EN PLUS, absents du dict AUG. `perimetre="reference"` ou
+    `"hors reference"` filtre les uns ou les autres.
     """
-    df = pd.DataFrame(_TABLE)[
-        ["effet", "reference", "ultralytics", "rfdetr", "detr", "yolox", "ecart"]
-    ]
+    df = pd.DataFrame(_TABLE)
+    df["perimetre"] = df.get("hors_reference", False).fillna(False).map(
+        {True: "hors reference", False: "reference"})
+    df = df[["effet", "perimetre", "reference",
+             "ultralytics", "rfdetr", "detr", "yolox", "ecart"]]
+    if perimetre:
+        df = df[df["perimetre"] == perimetre].reset_index(drop=True)
     return df.rename(columns=MODELES) if libelles else df
+
+
+def etat_albumentations():
+    """Dit si le bloc albumentations cache d'Ultralytics va s'appliquer.
+
+    Ultralytics ajoute Blur, MedianBlur, ToGray et CLAHE (p=0.01 chacun) des
+    que le paquet albumentations est importable, et se tait sinon. Le resultat
+    de l'entrainement depend donc du contenu du runtime : on l'enregistre.
+    """
+    try:
+        import albumentations  # noqa: F401
+        return True
+    except Exception:
+        return False
 
 
 def masque_visibilite(aires_avant, boxes_apres, min_visibility=None):

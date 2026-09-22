@@ -78,13 +78,32 @@ def run_fold(fold):
                   early_stopping=True, early_stopping_patience=cfg.PATIENCE,
                   early_stopping_min_delta=0.001, early_stopping_use_ema=True,
                   aug_config=AUG_RFDETR)
+    # RF-DETR s'entraine en multi-echelle par defaut (multi_scale et
+    # expanded_scales a True) : aucun autre modele du benchmark ne le fait, et
+    # la reference fixe imgsz a 640. On les desactive, en repliant proprement
+    # si la version installee ne connait pas ces arguments.
+    multi_echelle = dict(multi_scale=False, expanded_scales=False)
 
     run = bench.wandb_run(MODELE, fold, {"batch": batch, "grad_accum": accum})
     t0 = time.time()
-    try:
-        model.train(**kwargs, wandb=cfg.USE_WANDB)
-    except TypeError:                            # version sans argument `wandb`
-        model.train(**kwargs)
+    for essai in (dict(**kwargs, **multi_echelle, wandb=cfg.USE_WANDB),
+                  dict(**kwargs, **multi_echelle),
+                  dict(**kwargs, wandb=cfg.USE_WANDB),
+                  dict(**kwargs)):
+        try:
+            model.train(**essai)
+            multi_desactivee = "multi_scale" in essai
+            break
+        except TypeError as e:                   # argument refuse par la version
+            if not any(k in str(e) for k in ("multi_scale", "expanded_scales",
+                                             "wandb")):
+                raise                            # erreur sans rapport : on arrete
+            print(f"  RF-DETR : {e} -- nouvelle tentative sans cet argument")
+    else:
+        raise RuntimeError("model.train a refuse toutes les combinaisons testees")
+    if not multi_desactivee:
+        print("  RF-DETR : ATTENTION, multi_scale n'a pas pu etre desactive -- "
+              "l'entrainement voit plusieurs resolutions, contrairement aux autres")
     train_time = round(time.time() - t0, 1)
 
     # Poids retenus par RF-DETR (EMA si disponible)
@@ -109,7 +128,9 @@ def run_fold(fold):
                          latency_std_ms=round(lat_std, 3),
                          notes=f"early stopping natif (patience {cfg.PATIENCE}) ; "
                                f"visibilite min "
-                               f"{'non applicable' if seuil is None else f'{seuil:.0%}'}",
+                               f"{'non applicable' if seuil is None else f'{seuil:.0%}'} ; "
+                               f"multi-echelle "
+                               f"{'desactivee' if multi_desactivee else 'ACTIVE'}",
                          **stats, **metrics)
     bench.wandb_finish(run, metrics)
     return row

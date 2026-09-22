@@ -111,15 +111,30 @@ def fmt_dict(d, indent=4):
     return "\n".join(lines)
 
 
-def main():
-    parts = [HEADER.format(aug=fmt_dict(AUG))]
-    parts.append("## Effet par effet\n")
-    for row in _TABLE:
+def section(titre, intro, lignes):
+    parts = [f"## {titre}\n", intro + "\n"]
+    for row in lignes:
         parts.append(f"### {row['effet']}\n")
         parts.append(f"- **Reference** : `{row['reference']}`")
         for cle, libelle in MODELES.items():
             parts.append(f"- **{libelle}** : {row[cle]}")
         parts.append(f"- **Ecart** : {row['ecart']}\n")
+    return parts
+
+
+def main():
+    parts = [HEADER.format(aug=fmt_dict(AUG))]
+    parts += section(
+        "Effet par effet",
+        "Les effets nommes par la reference, et ce que chaque depot en fait.",
+        [r for r in _TABLE if not r.get("hors_reference")])
+    parts += section(
+        "Augmentations absentes de la reference",
+        "Ce que certains depots appliquent EN PLUS, sans qu'aucune cle du dict "
+        "`AUG` en parle. Ce sont les ecarts les plus faciles a manquer : ils ne "
+        "figurent dans aucun reglage, et pourtant ils changent ce que le modele "
+        "voit.",
+        [r for r in _TABLE if r.get("hors_reference")])
     parts.append(FOOTER.format(rfdetr=fmt_dict(AUG_RFDETR), yolox=fmt_dict(AUG_YOLOX)))
 
     DOC.parent.mkdir(parents=True, exist_ok=True)

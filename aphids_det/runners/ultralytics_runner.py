@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 from .. import bench, cocoify, config as cfg, evaluate
-from ..augment import AUG, patch_ultralytics_visibility
+from ..augment import AUG, etat_albumentations, patch_ultralytics_visibility
 from ..folds import fold_counts, fold_train_paths, fold_val_paths
 
 PROJECT = "yolo_comp"
@@ -94,6 +94,11 @@ def run_fold(modele, weights, fold):
     from ultralytics import YOLO
 
     patch_ultralytics_visibility()      # seuil de visibilite des boites tronquees
+    # Ultralytics ajoute Blur/MedianBlur/ToGray/CLAHE (p=0.01) des qu'albumentations
+    # est importable : on enregistre ce qui s'est reellement applique.
+    alb = etat_albumentations()
+    print(f"  Ultralytics : bloc albumentations cache "
+          f"{'ACTIF (Blur, MedianBlur, ToGray, CLAHE a p=0.01)' if alb else 'inactif'}")
     yml = build_fold_yaml(fold)
     npos, nneg = fold_counts(fold)
     batch, _ = cfg.batch_for("ultralytics")
@@ -130,7 +135,9 @@ def run_fold(modele, weights, fold):
                           best_epoch=best_epoch, epochs_run=epochs_run,
                           train_time_s=train_time, latency_cpu_ms=round(lat, 3),
                           latency_std_ms=round(lat_std, 3),
-                          notes=f"poids={weights}", **stats, **metrics)
+                          notes=f"poids={weights} ; bloc albumentations "
+                                f"{'actif' if alb else 'inactif'}",
+                          **stats, **metrics)
 
 
 def run_cv(models=None, folds=None):

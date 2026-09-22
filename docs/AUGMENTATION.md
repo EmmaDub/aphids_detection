@@ -39,6 +39,8 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 
 ## Effet par effet
 
+Les effets nommes par la reference, et ce que chaque depot en fait.
+
 ### Teinte (hue)
 
 - **Reference** : `hsv_h = 0`
@@ -164,6 +166,64 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 - **RT-DETR-R18 / D-FINE-N** : RandomPhotometricDistort REMPLACE par ColorJitter (il permutait les canaux couleur)
 - **YOLOX-Nano** : aucun
 - **Ecart** : Le remplacement evite la permutation de canaux, absente de la reference.
+
+## Augmentations absentes de la reference
+
+Ce que certains depots appliquent EN PLUS, sans qu'aucune cle du dict `AUG` en parle. Ce sont les ecarts les plus faciles a manquer : ils ne figurent dans aucun reglage, et pourtant ils changent ce que le modele voit.
+
+### Transforms albumentations d'Ultralytics
+
+- **Reference** : `absent`
+- **YOLO26n / YOLO11n / YOLO12n** : Blur, MedianBlur, ToGray et CLAHE, a p=0.01 chacun, appliques SI le paquet albumentations est importable
+- **RF-DETR-N** : aucun equivalent
+- **RT-DETR-R18 / D-FINE-N** : aucun equivalent
+- **YOLOX-Nano** : aucun equivalent
+- **Ecart** : Environ 4 % des tuiles recoivent un flou, un passage en niveaux de gris ou une egalisation d'histogramme -- chez les YOLO seulement. Le bloc est silencieux : il s'active selon la presence d'albumentations dans le runtime. augment.etat_albumentations() le signale et la colonne notes du CSV enregistre ce qui s'est reellement passe.
+
+### Multi-echelle par lot
+
+- **Reference** : `absent : imgsz fixe a 640`
+- **YOLO26n / YOLO11n / YOLO12n** : multi_scale = False par defaut en detection
+- **RF-DETR-N** : multi_scale et expanded_scales sont a True par defaut : la resolution change d'un lot a l'autre. DESACTIVES par le benchmark (repli silencieux si la version les refuse)
+- **RT-DETR-R18 / D-FINE-N** : BatchImageCollateFunction neutralise par les configs retenues (scales: ~ pour RT-DETRv2-R18, base_size_repeat: ~ pour D-FINE-N)
+- **YOLOX-Nano** : multiscale_range mis a 0 par le benchmark (defaut 5, soit +/-160 px autour de 640)
+- **Ecart** : Sans cette harmonisation, RF-DETR aurait ete le seul a voir plusieurs resolutions, et YOLOX le seul autre a varier de +/-160 px.
+
+### Coupure des augmentations en fin d'entrainement
+
+- **Reference** : `close_mosaic = 10 (defaut Ultralytics)`
+- **YOLO26n / YOLO11n / YOLO12n** : close_mosaic=10 : mosaique coupee sur les 10 dernieres epoques
+- **RF-DETR-N** : aucun mecanisme de ce type
+- **RT-DETR-R18 / D-FINE-N** : politique stop_epoch : ColorJitter, ZoomOut et IoUCrop coupes a partir de l'epoque 20 sur 30
+- **YOLOX-Nano** : no_aug_epochs=10
+- **Ecart** : Aligne sur les 10 dernieres epoques partout, sauf RF-DETR qui n'offre pas ce reglage.
+
+### Plage des pixels et normalisation
+
+- **Reference** : `non specifie (pretraitement, pas augmentation)`
+- **YOLO26n / YOLO11n / YOLO12n** : 0-1, RGB
+- **RF-DETR-N** : 0-1 puis normalisation ImageNet (mean/std)
+- **RT-DETR-R18 / D-FINE-N** : 0-1, sans normalisation ImageNet (ConvertPILImage scale=True)
+- **YOLOX-Nano** : 0-255 bruts, BGR, sans normalisation
+- **Ecart** : Non harmonise, et il ne FAUT pas l'harmoniser : chaque depot doit garder le pretraitement de ses poids COCO, sans quoi le transfert est casse.
+
+### Mise a 640 de la tuile
+
+- **Reference** : `imgsz = 640`
+- **YOLO26n / YOLO11n / YOLO12n** : letterbox, ratio preserve, remplissage 114
+- **RF-DETR-N** : redimensionnement carre
+- **RT-DETR-R18 / D-FINE-N** : Resize [640, 640]
+- **YOLOX-Nano** : letterbox, ratio preserve, remplissage 114
+- **Ecart** : Sans consequence ici : les tuiles sont deja carrees, 640 x 640.
+
+### Effacement aleatoire et copier-coller d'instances
+
+- **Reference** : `absents`
+- **YOLO26n / YOLO11n / YOLO12n** : erasing=0.4 mais classification uniquement ; copy_paste=0.0 et exige des masques de segmentation
+- **RF-DETR-N** : absents
+- **RT-DETR-R18 / D-FINE-N** : absents
+- **YOLOX-Nano** : absents
+- **Ecart** : Aucun effet en detection : ces deux reglages ne sont jamais atteints par le pipeline utilise ici.
 
 
 ## Voir le resultat
