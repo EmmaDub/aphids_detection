@@ -378,8 +378,11 @@ fig = visualize.compare(fold=0, n_aug=4, seed=0, save=True)
            "Le determinisme n'est pas obtenu en trichant sur le calcul : quand "
            "l'API le permet on passe un intervalle degenere (`saturation=(1.2, "
            "1.2)`, `scales=(1.25, 1.25)`), sinon on force les tirages a leur "
-           "borne. Une case barree signale un reglage que le framework n'expose "
-           "pas -- c'est une information, pas un echec."),
+           "borne. Quand un framework n'expose pas le reglage, la case montre "
+           "ce qu'il fait **a la place** -- recadrage `RandomIoUCrop` pousse a "
+           "son decalage maximal pour RT-DETR et D-FINE, branche recadrage du "
+           "`OneOf` interne pour RF-DETR -- avec une legende qui le precise. "
+           "Elle ne reste vide que faute d'alternative, comme la mosaique."),
         code("""
 visualize.compare_effets(fold=0, save=True)
 """),

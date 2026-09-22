@@ -163,12 +163,21 @@ faux = {
     "Pipeline en echec (test)": pipeline_casse,
 }
 
-def faux_effet(sans=()):
-    """Pipeline d'effets factice : applique l'effet demande, ou rien s'il est
-    dans `sans` (pour verifier le rendu des cases 'non expose')."""
+def faux_effet(sans=(), substitut=()):
+    """Pipeline d'effets factice.
+
+    `sans` : effets sans image, la case affiche la raison.
+    `substitut` : effets rendus par une alternative, la case porte une legende
+    (4e element du tuple) -- c'est le cas "voici ce que le framework fait a la
+    place".
+    """
     def pipeline(tile, effet, pool=None):
         if effet in sans:
             return "reglage absent\ndu framework (test)"
+        if effet in substitut:
+            img = visualize._read_rgb(tile.path)
+            return (img, tile.boxes.copy(), tile.classes.copy(),
+                    "a la place : alternative\nnative du framework (test)")
         if effet == "mosaique":
             img = np.asarray(Image.open(tile.path).convert("RGB"))
             return img, tile.boxes.copy(), tile.classes.copy()
@@ -203,9 +212,11 @@ fig_effets = visualize.compare_effets(
     fold=0, tile=t0, pool=vivier, save=png_effets,
     pipelines={
         "YOLO26n / YOLO11n / YOLO12n": faux_effet(),
-        "RF-DETR-N": faux_effet(sans=("echelle_min", "echelle_max",
-                                      "translation", "mosaique")),
-        "RT-DETR-R18 / D-FINE-N": faux_effet(sans=("translation", "mosaique")),
+        "RF-DETR-N": faux_effet(sans=("mosaique",),
+                                substitut=("echelle_min", "echelle_max",
+                                           "translation")),
+        "RT-DETR-R18 / D-FINE-N": faux_effet(sans=("mosaique",),
+                                             substitut=("translation",)),
         "YOLOX-Nano": faux_effet(),
     })
 attendu = len(visualize.EFFETS) + 1
@@ -219,6 +230,11 @@ for titre, cle, nom_table in visualize.EFFETS:
     assert titre.startswith(nom_table), (titre, nom_table)
 print(f"colonnes conformes a augment.table() : "
       f"{[e[2] for e in visualize.EFFETS]}")
+
+# les modeles portent le meme nom dans les figures et dans la table
+assert list(visualize.PIPELINES) == list(visualize.EFFET_PIPELINES)        == list(augment.MODELES.values())
+assert set(augment.MODELES.values()) <= set(augment.table().columns)
+print(f"modeles nommes pareil partout : {list(augment.MODELES.values())}")
 assert png_effets.exists() and png_effets.stat().st_size > 50_000
 print(f"figure effets : {png_effets.name} "
       f"({png_effets.stat().st_size/1e3:.0f} ko, {attendu} colonnes)")

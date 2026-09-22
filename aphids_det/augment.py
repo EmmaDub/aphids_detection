@@ -13,6 +13,17 @@ import pandas as pd
 from . import config as cfg
 
 # ============================================================================
+# Libelles des modeles : une seule source, pour que la table d'augmentation,
+# la documentation et les figures designent les modeles de la meme facon.
+# ============================================================================
+MODELES = {
+    "ultralytics": "YOLO26n / YOLO11n / YOLO12n",
+    "rfdetr": "RF-DETR-N",
+    "detr": "RT-DETR-R18 / D-FINE-N",
+    "yolox": "YOLOX-Nano",
+}
+
+# ============================================================================
 # Reference : Ultralytics (applique tel quel a YOLO26n / YOLO11n / YOLO12n)
 # ============================================================================
 AUG = {
@@ -194,11 +205,16 @@ _TABLE = [
 ]
 
 
-def table():
-    """Table de correspondance des augmentations (DataFrame)."""
-    return pd.DataFrame(_TABLE)[
+def table(libelles=True):
+    """Table de correspondance des augmentations (DataFrame).
+
+    Les colonnes portent les memes libelles de modeles que les figures du
+    notebook 07 (`libelles=False` garde les cles internes).
+    """
+    df = pd.DataFrame(_TABLE)[
         ["effet", "reference", "ultralytics", "rfdetr", "detr", "yolox", "ecart"]
     ]
+    return df.rename(columns=MODELES) if libelles else df
 
 
 def masque_visibilite(aires_avant, boxes_apres, min_visibility=None):

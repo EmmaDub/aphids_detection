@@ -9,7 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from aphids_det.augment import AUG, AUG_RFDETR, AUG_YOLOX, _TABLE  # noqa: E402
+from aphids_det.augment import (AUG, AUG_RFDETR, AUG_YOLOX, MODELES,  # noqa: E402
+                                _TABLE)
 
 DOC = Path(__file__).resolve().parent.parent / "docs" / "AUGMENTATION.md"
 
@@ -116,10 +117,8 @@ def main():
     for row in _TABLE:
         parts.append(f"### {row['effet']}\n")
         parts.append(f"- **Reference** : `{row['reference']}`")
-        parts.append(f"- **Ultralytics (YOLO26n/11n/12n)** : {row['ultralytics']}")
-        parts.append(f"- **RF-DETR-N** : {row['rfdetr']}")
-        parts.append(f"- **RT-DETR-R18 / D-FINE-N** : {row['detr']}")
-        parts.append(f"- **YOLOX-Nano** : {row['yolox']}")
+        for cle, libelle in MODELES.items():
+            parts.append(f"- **{libelle}** : {row[cle]}")
         parts.append(f"- **Ecart** : {row['ecart']}\n")
     parts.append(FOOTER.format(rfdetr=fmt_dict(AUG_RFDETR), yolox=fmt_dict(AUG_YOLOX)))
 

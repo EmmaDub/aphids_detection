@@ -42,7 +42,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Teinte (hue)
 
 - **Reference** : `hsv_h = 0`
-- **Ultralytics (YOLO26n/11n/12n)** : hsv_h=0
+- **YOLO26n / YOLO11n / YOLO12n** : hsv_h=0
 - **RF-DETR-N** : ColorJitter(hue=0)
 - **RT-DETR-R18 / D-FINE-N** : ColorJitter(hue=0)
 - **YOLOX-Nano** : augment_hsv(hgain=0)
@@ -51,7 +51,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Saturation
 
 - **Reference** : `hsv_s = 0.2`
-- **Ultralytics (YOLO26n/11n/12n)** : hsv_s=0.2 (gain multiplicatif x[0.8,1.2])
+- **YOLO26n / YOLO11n / YOLO12n** : hsv_s=0.2 (gain multiplicatif x[0.8,1.2])
 - **RF-DETR-N** : ColorJitter(saturation=0.2, p=1)
 - **RT-DETR-R18 / D-FINE-N** : ColorJitter(saturation=0.2)
 - **YOLOX-Nano** : augment_hsv(sgain=51)
@@ -60,7 +60,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Luminosite / valeur
 
 - **Reference** : `hsv_v = 0.2`
-- **Ultralytics (YOLO26n/11n/12n)** : hsv_v=0.2
+- **YOLO26n / YOLO11n / YOLO12n** : hsv_v=0.2
 - **RF-DETR-N** : RandomBrightnessContrast(brightness_limit=0.2, p=1)
 - **RT-DETR-R18 / D-FINE-N** : ColorJitter(brightness=0.2)
 - **YOLOX-Nano** : augment_hsv(vgain=51)
@@ -69,7 +69,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Rotation
 
 - **Reference** : `degrees = 0`
-- **Ultralytics (YOLO26n/11n/12n)** : degrees=0
+- **YOLO26n / YOLO11n / YOLO12n** : degrees=0
 - **RF-DETR-N** : aucune rotation
 - **RT-DETR-R18 / D-FINE-N** : aucune rotation
 - **YOLOX-Nano** : degrees=0.0
@@ -78,7 +78,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Translation
 
 - **Reference** : `translate = 0.1`
-- **Ultralytics (YOLO26n/11n/12n)** : translate=0.1
+- **YOLO26n / YOLO11n / YOLO12n** : translate=0.1
 - **RF-DETR-N** : position aleatoire du recadrage interne (branche B du OneOf)
 - **RT-DETR-R18 / D-FINE-N** : position aleatoire du RandomIoUCrop (recadre 80-100% du cote)
 - **YOLOX-Nano** : translate=0.1 (random_affine)
@@ -87,7 +87,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Zoom / echelle
 
 - **Reference** : `scale = 0.25 (facteur [0.75,1.25])`
-- **Ultralytics (YOLO26n/11n/12n)** : scale=0.25
+- **YOLO26n / YOLO11n / YOLO12n** : scale=0.25
 - **RF-DETR-N** : OneOf : resize direct, ou resize 400/500/600 + recadrage + resize 640 -- variation d'echelle reelle mais non parametrable
 - **RT-DETR-R18 / D-FINE-N** : RandomZoomOut(side_range=(1.0,1.333)) -> x[0.75,1.0] et RandomIoUCrop(min_scale=0.8) -> x[1.0,1.25]
 - **YOLOX-Nano** : mosaic_scale=(0.75,1.25)
@@ -96,7 +96,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Cisaillement / perspective
 
 - **Reference** : `shear = 0, perspective = 0`
-- **Ultralytics (YOLO26n/11n/12n)** : shear=0, perspective=0
+- **YOLO26n / YOLO11n / YOLO12n** : shear=0, perspective=0
 - **RF-DETR-N** : absent
 - **RT-DETR-R18 / D-FINE-N** : absent
 - **YOLOX-Nano** : shear=0.0
@@ -105,7 +105,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Miroir vertical
 
 - **Reference** : `flipud = 0.5`
-- **Ultralytics (YOLO26n/11n/12n)** : flipud=0.5
+- **YOLO26n / YOLO11n / YOLO12n** : flipud=0.5
 - **RF-DETR-N** : VerticalFlip(p=0.5)
 - **RT-DETR-R18 / D-FINE-N** : RandomVerticalFlip(p=0.5) (transform enregistree par le benchmark)
 - **YOLOX-Nano** : vflip_prob=0.5 (TrainTransform patche par le benchmark)
@@ -114,7 +114,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Miroir horizontal
 
 - **Reference** : `fliplr = 0.5`
-- **Ultralytics (YOLO26n/11n/12n)** : fliplr=0.5
+- **YOLO26n / YOLO11n / YOLO12n** : fliplr=0.5
 - **RF-DETR-N** : HorizontalFlip(p=0.5)
 - **RT-DETR-R18 / D-FINE-N** : RandomHorizontalFlip(p=0.5)
 - **YOLOX-Nano** : flip_prob=0.5
@@ -123,7 +123,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Mosaique
 
 - **Reference** : `mosaic = 1`
-- **Ultralytics (YOLO26n/11n/12n)** : mosaic=1.0 (coupee sur les 10 dernieres epoques, close_mosaic)
+- **YOLO26n / YOLO11n / YOLO12n** : mosaic=1.0 (coupee sur les 10 dernieres epoques, close_mosaic)
 - **RF-DETR-N** : absente du framework
 - **RT-DETR-R18 / D-FINE-N** : absente des deux depots (aucune transform Mosaic dans leur registre)
 - **YOLOX-Nano** : mosaic_prob=1.0, no_aug_epochs=10
@@ -132,7 +132,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### MixUp / CutMix
 
 - **Reference** : `mixup = 0, cutmix = 0`
-- **Ultralytics (YOLO26n/11n/12n)** : mixup=0.0, cutmix=0
+- **YOLO26n / YOLO11n / YOLO12n** : mixup=0.0, cutmix=0
 - **RF-DETR-N** : desactive
 - **RT-DETR-R18 / D-FINE-N** : desactive
 - **YOLOX-Nano** : enable_mixup=False, mixup_prob=0.0
@@ -141,7 +141,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Boites tronquees par l'augmentation
 
 - **Reference** : `conserver >= 20% de l'aire d'origine`
-- **Ultralytics (YOLO26n/11n/12n)** : box_candidates(area_thr=0.2) -- le 0.10 code en dur est patche par le benchmark
+- **YOLO26n / YOLO11n / YOLO12n** : box_candidates(area_thr=0.2) -- le 0.10 code en dur est patche par le benchmark
 - **RF-DETR-N** : min_visibility=0.2 impose au BboxParams du package (defaut 0.0 : un eclat de boite restait annote)
 - **RT-DETR-R18 / D-FINE-N** : RandomIoUCrop ne garde que les boites dont le CENTRE tombe dans le recadrage : une boite conservee garde donc au moins 25% de son aire, deja plus strict que le seuil
 - **YOLOX-Nano** : filtre ajoute a la sortie de random_affine (seuil 0.2)
@@ -150,7 +150,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Remplissage des bords vides
 
 - **Reference** : `gris 114 (YOLO)`
-- **Ultralytics (YOLO26n/11n/12n)** : 114
+- **YOLO26n / YOLO11n / YOLO12n** : 114
 - **RF-DETR-N** : sans objet
 - **RT-DETR-R18 / D-FINE-N** : fill=114 (les depots utilisent du noir, fill=0)
 - **YOLOX-Nano** : 114 (borderValue de random_affine)
@@ -159,7 +159,7 @@ Les deux ajouts de code faits par le benchmark aux depots externes :
 ### Permutation BGR / auto-augment
 
 - **Reference** : `bgr = 0, auto_augment = None`
-- **Ultralytics (YOLO26n/11n/12n)** : bgr=0.0, auto_augment=None
+- **YOLO26n / YOLO11n / YOLO12n** : bgr=0.0, auto_augment=None
 - **RF-DETR-N** : aucun
 - **RT-DETR-R18 / D-FINE-N** : RandomPhotometricDistort REMPLACE par ColorJitter (il permutait les canaux couleur)
 - **YOLOX-Nano** : aucun

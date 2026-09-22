@@ -33,8 +33,8 @@ from pathlib import Path
 import numpy as np
 
 from . import config as cfg, external
-from .augment import (AUG, AUG_RFDETR, AUG_YOLOX, masque_visibilite,
-                      patch_ultralytics_visibility)
+from .augment import (AUG, AUG_RFDETR, AUG_YOLOX, MODELES,
+                      masque_visibilite, patch_ultralytics_visibility)
 from .folds import fold_train_paths, has_annotations, label_of
 
 Tile = namedtuple("Tile", "path boxes classes")
@@ -375,11 +375,13 @@ def aug_yolox(tile, n_aug, pool, seed=0):
     return out, "mosaique 4 tuiles + affine + HSV additif + flips"
 
 
+# Les libelles viennent d'augment.MODELES : figures et table d'augmentation
+# designent ainsi les modeles de la meme facon.
 PIPELINES = {
-    "YOLO26n / YOLO11n / YOLO12n": aug_ultralytics,
-    "RF-DETR-N": aug_rfdetr,
-    "RT-DETR-R18 / D-FINE-N": aug_detr,
-    "YOLOX-Nano": aug_yolox,
+    MODELES["ultralytics"]: aug_ultralytics,
+    MODELES["rfdetr"]: aug_rfdetr,
+    MODELES["detr"]: aug_detr,
+    MODELES["yolox"]: aug_yolox,
 }
 
 
@@ -658,6 +660,49 @@ def effet_ultralytics(tile, effet, pool=None):
 
 
 # ----------------------------------------------------------------- RF-DETR
+def _rfdetr_branche_recadrage(tile):
+    """Branche "resize -> recadrage -> resize 640" du OneOf interne de RF-DETR.
+
+    C'est la seule variation d'echelle et de position que le framework applique,
+    et elle n'est pas reglable depuis `aug_config`. On la construit avec le
+    constructeur du package (`_build_train_resize_config`) et son propre wrapper
+    albumentations, pour montrer ce qu'elle fait plutot que de laisser une case
+    vide. Renvoie une chaine explicative si l'API du package a change.
+    """
+    import torch
+    from PIL import Image
+
+    try:
+        from rfdetr.datasets.coco import _build_train_resize_config
+        from rfdetr.datasets.transforms import AlbumentationsWrapper
+    except Exception as e:
+        return ("echelle et translation non\nreglables : elles viennent du\n"
+                f"recadrage interne du framework\n({type(e).__name__})")
+
+    try:
+        conf = _build_train_resize_config([cfg.IMGSZ], square=True, scale_jitter=True)
+        entree = conf[0]
+        branche = entree["OneOf"]["transforms"][1]        # option B : avec recadrage
+        wrappers = AlbumentationsWrapper.from_config([branche])
+    except Exception as e:
+        return ("echelle et translation non\nreglables : elles viennent du\n"
+                "recadrage interne du framework\n"
+                f"(structure illisible : {type(e).__name__})")
+
+    img = Image.fromarray(_read_rgb(tile.path))
+    cible = {"boxes": torch.from_numpy(tile.boxes.copy()),
+             "labels": torch.from_numpy(tile.classes.copy()),
+             "size": torch.tensor([cfg.IMGSZ, cfg.IMGSZ]),
+             "orig_size": torch.tensor([cfg.IMGSZ, cfg.IMGSZ])}
+    for w in wrappers:
+        img, cible = w(img, cible)
+    boxes = np.asarray(cible["boxes"], dtype=np.float32).reshape(-1, 4)
+    classes = np.asarray(cible["labels"], dtype=int).reshape(-1)
+    return (np.asarray(img.convert("RGB")), boxes, classes,
+            "a la place : branche recadrage\ndu OneOf interne (resize 400-600,\n"
+            "recadrage, retour a 640)")
+
+
 def effet_rfdetr(tile, effet, pool=None):
     """Un effet isole, a sa borne, avec les transforms albumentations de `aug_config`."""
     import albumentations as A
@@ -675,8 +720,11 @@ def effet_rfdetr(tile, effet, pool=None):
     elif effet == "mosaique":
         return "mosaique absente\ndu framework"
     else:
-        return ("echelle et translation\nnon reglables : elles\nviennent du "
-                "recadrage\ninterne du framework")
+        # Echelle et translation ne sont pas reglables : ce que RF-DETR fait A
+        # LA PLACE, c'est la branche B de son OneOf interne (redimensionnement
+        # intermediaire -> recadrage -> retour a 640). On la joue avec le
+        # constructeur de pipeline du package lui-meme.
+        return _rfdetr_branche_recadrage(tile)
 
     pipe = A.Compose([t], bbox_params=A.BboxParams(
         format="pascal_voc", label_fields=["classes"],
@@ -693,6 +741,7 @@ def effet_detr(tile, effet, pool=None):
     """Un effet isole, a sa borne, avec les classes torchvision v2 des depots."""
     resize = {"type": "Resize", "size": [cfg.IMGSZ, cfg.IMGSZ]}
     sanitize = {"type": "SanitizeBoundingBoxes", "min_size": 1}
+    note = None
     if effet == "saturation":
         ops = [{"type": "ColorJitter", "saturation": [_GAIN_SAT, _GAIN_SAT]}]
     elif effet == "luminosite":
@@ -714,9 +763,17 @@ def effet_detr(tile, effet, pool=None):
                 "sampler_options": [0.0], "p": 1.0}, sanitize, resize]
     elif effet == "mosaique":
         return "mosaique absente\ndes deux depots"
+    elif effet == "translation":
+        # Pas de reglage de translation : ce que le depot fait A LA PLACE, c'est
+        # tirer la position de son recadrage. Recadrage de 90 % du cote (donc un
+        # decalage maximal de 10 %), pousse a son offset maximal.
+        r = round(1 - AUG["translate"], 3)
+        ops = [{"type": "RandomIoUCrop", "min_scale": r, "max_scale": r,
+                "min_aspect_ratio": 0.9, "max_aspect_ratio": 1.1,
+                "sampler_options": [0.0], "p": 1.0}, sanitize, resize]
+        note = "a la place : recadrage IoU au\ndecalage maxi (+10 %), avec un\nzoom x1.11 induit par le retour a 640"
     else:
-        return ("pas de reglage de\ntranslation : elle vient\ndu tirage de "
-                "position\nde RandomIoUCrop")
+        return f"effet inconnu : {effet}"
 
     import torch
     from torchvision import tv_tensors
@@ -729,11 +786,15 @@ def effet_detr(tile, effet, pool=None):
                                           format="XYXY", canvas_size=(H, W)),
         "labels": torch.from_numpy(tile.classes),
     }
-    with _tirages_extremes("max", valeur_torch=0.5):   # recadrage centre
+    # position du recadrage : centree pour un effet isole, poussee au maximum
+    # quand c'est justement le decalage qu'on veut montrer
+    position = 1.0 if effet == "translation" else 0.5
+    with _tirages_extremes("max", valeur_torch=position):
         res = _detr_transform(ops)(echantillon)
-    return (res["image"].permute(1, 2, 0).numpy().astype(np.uint8),
-            res["boxes"].numpy().reshape(-1, 4),
-            res["labels"].numpy().astype(int))
+    sortie = (res["image"].permute(1, 2, 0).numpy().astype(np.uint8),
+              res["boxes"].numpy().reshape(-1, 4),
+              res["labels"].numpy().astype(int))
+    return sortie + (note,) if note else sortie
 
 
 # -------------------------------------------------------------------- YOLOX
@@ -803,10 +864,10 @@ def effet_yolox(tile, effet, pool=None):
 
 
 EFFET_PIPELINES = {
-    "YOLO26n / YOLO11n / YOLO12n": effet_ultralytics,
-    "RF-DETR-N": effet_rfdetr,
-    "RT-DETR-R18 / D-FINE-N": effet_detr,
-    "YOLOX-Nano": effet_yolox,
+    MODELES["ultralytics"]: effet_ultralytics,
+    MODELES["rfdetr"]: effet_rfdetr,
+    MODELES["detr"]: effet_detr,
+    MODELES["yolox"]: effet_yolox,
 }
 
 
@@ -860,15 +921,20 @@ def compare_effets(fold=0, tile=None, pool=None, effets=None, pipelines=None,
             ax = axes[r][c]
             res = ligne.get(effet)
             if res is None or isinstance(res, str):
-                # Pas d'image : le framework n'expose pas ce reglage. La raison
-                # est ecrite dans la case, c'est une information a part entiere.
+                # Pas d'image : le framework n'expose pas ce reglage et n'a rien
+                # a montrer a la place. La raison est ecrite dans la case.
                 ax.set_facecolor(SURFACE)
                 _frame(ax)
                 ax.text(0.5, 0.5, res or "reglage absent", fontsize=7,
                         color=INK_MUTED, ha="center", va="center",
                         transform=ax.transAxes, linespacing=1.5)
             else:
-                _draw(ax, *res)
+                # 4 elements = substitut : le framework n'a pas ce reglage, mais
+                # voici ce qu'il fait a la place. La legende sous la case le dit.
+                _draw(ax, *res[:3])
+                if len(res) > 3 and res[3]:
+                    ax.set_xlabel(res[3], fontsize=6.5, color=INK_MUTED,
+                                  labelpad=3, linespacing=1.4)
             if r == 0:
                 ax.set_title(titre, fontsize=8.5, color=INK_SECONDARY)
         if r == 0:

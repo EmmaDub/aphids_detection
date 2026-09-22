@@ -152,8 +152,11 @@ Le notebook produit deux figures complementaires :
   la figure qui verifie qu'un meme reglage produit bien le meme effet partout.
   Le determinisme vient d'un intervalle degenere quand l'API l'accepte
   (`saturation=(1.2, 1.2)`, `scales=(1.25, 1.25)`), et sinon des tirages forces
-  a leur borne ; une case barree signale un reglage que le framework n'expose
-  pas.
+  a leur borne. Quand un framework n'expose pas le reglage, la case montre ce
+  qu'il fait **a la place** (le recadrage `RandomIoUCrop` pousse a son decalage
+  maximal pour RT-DETR et D-FINE, la branche recadrage du `OneOf` interne pour
+  RF-DETR), avec une legende qui le dit ; elle ne reste vide que lorsqu'il n'y
+  a aucune alternative, comme la mosaique.
 
 Ensemble, elles verifient de visu ce que dit
 [docs/AUGMENTATION.md](docs/AUGMENTATION.md) : mosaique presente chez YOLO et
