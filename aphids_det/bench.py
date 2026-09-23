@@ -109,7 +109,8 @@ def result_columns():
                "train_time_s",
                "latency_cpu_ms", "latency_std_ms", "n_params_M", "size_MB", "ckpt_MB",
                "batch", "grad_accum", "batch_effectif", "imgsz", "neg_ratio",
-               "n_pucerons_train", "n_fonds_train", "repo_commit", "notes"])
+               "n_pucerons_train", "n_fonds_train", "repo_commit", "versions",
+               "notes"])
 
 
 def load_rows(csv_path=None):
@@ -136,6 +137,30 @@ def save_rows(rows, csv_path=None):
     return csv_path
 
 
+_PAQUETS = {"ultralytics": "ultralytics", "rfdetr": "rfdetr"}
+
+
+def versions(framework=None):
+    """Versions de torch, torchvision, albumentations et du paquet du framework.
+
+    Enregistrees a cote de `repo_commit` : une augmentation ou une metrique peut
+    changer d'une version a l'autre sans que le code du benchmark bouge.
+    """
+    import importlib
+
+    noms = ["torch", "torchvision", "albumentations"]
+    if framework in _PAQUETS:
+        noms.append(_PAQUETS[framework])
+    trouvees = []
+    for nom in noms:
+        try:
+            module = importlib.import_module(nom)
+            trouvees.append(f"{nom}={getattr(module, '__version__', '?')}")
+        except Exception:
+            continue
+    return " ".join(trouvees)
+
+
 def base_row(modele, framework, fold, npos, nneg, **extra):
     """Colonnes communes a toutes les lignes de resultat."""
     batch, accum = cfg.batch_for(framework)
@@ -149,7 +174,7 @@ def base_row(modele, framework, fold, npos, nneg, **extra):
         # stopped_early = False signale que le plafond MAX_EPOCHS a ete atteint,
         # donc qu'il est trop bas pour ce modele.
         "best_epoch": -1, "epochs_run": -1, "stopped_early": None,
-        "repo_commit": "", "notes": "",
+        "repo_commit": "", "versions": versions(framework), "notes": "",
     }
     row.update(extra)
     return row

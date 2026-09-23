@@ -63,7 +63,7 @@ Les effets nommes par la reference, et ce que chaque depot en fait.
 
 - **Reference** : `hsv_v = 0.2`
 - **YOLO26n / YOLO11n / YOLO12n** : hsv_v=0.2
-- **RF-DETR-N** : RandomBrightnessContrast(brightness_limit=0.2, p=1)
+- **RF-DETR-N** : ColorJitter(brightness=0.2, p=1)
 - **RT-DETR-R18 / D-FINE-N** : ColorJitter(brightness=0.2)
 - **YOLOX-Nano** : gain multiplicatif x[0.8,1.2], applique systematiquement
 - **Ecart** : Aucun depuis la reecriture de augment_hsv.
@@ -81,19 +81,19 @@ Les effets nommes par la reference, et ce que chaque depot en fait.
 
 - **Reference** : `translate = 0.1`
 - **YOLO26n / YOLO11n / YOLO12n** : translate=0.1
-- **RF-DETR-N** : position aleatoire du recadrage interne (branche B du OneOf)
+- **RF-DETR-N** : Affine(translate_percent=(-0.1, 0.1))
 - **RT-DETR-R18 / D-FINE-N** : position aleatoire du RandomIoUCrop (recadre 80-100% du cote)
 - **YOLOX-Nano** : translate=0.1 (random_affine)
-- **Ecart** : Aucun des trois DETR n'expose de translation : elle resulte du tirage de position de leur recadrage interne (borne par min_scale=0.8 chez RT-DETR et D-FINE, non reglable chez RF-DETR). Amplitude du meme ordre que translate=0.1, loi differente.
+- **Ecart** : RF-DETR a desormais une translation bornee explicitement, par son Affine. Chez RT-DETR et D-FINE elle reste non parametrable : elle resulte du tirage de position de RandomIoUCrop, borne par min_scale=0.8. Amplitude du meme ordre que translate=0.1, loi differente.
 
 ### Zoom / echelle
 
 - **Reference** : `scale = 0.25 (facteur [0.75,1.25])`
 - **YOLO26n / YOLO11n / YOLO12n** : scale=0.25
-- **RF-DETR-N** : OneOf : resize direct, ou resize 400/500/600 + recadrage + resize 640 -- variation d'echelle reelle mais non parametrable
+- **RF-DETR-N** : Affine(scale=(0.75, 1.25), keep_ratio=True) ; scale_jitter, multi_scale et expanded_scales coupes
 - **RT-DETR-R18 / D-FINE-N** : RandomZoomOut(side_range=(1.0,1.333)) -> x[0.75,1.0] et RandomIoUCrop(min_scale=0.8) -> x[1.0,1.25]
 - **YOLOX-Nano** : mosaic_scale=(0.75,1.25)
-- **Ecart** : Bornes des transforms natives recalees sur la reference (cfg.DETR_GEOM='reference'). Par defaut les depots tirent dans x[0.25,3.3], sans commune mesure avec la reference ; cfg.DETR_GEOM='natif' restaure ce comportement, 'affine' remplace les deux ops par un RandomAffine aux parametres exacts d'Ultralytics. RF-DETR reste sans zoom parametrable.
+- **Ecart** : Bornes des transforms natives recalees sur la reference (cfg.DETR_GEOM='reference'). Par defaut les depots tirent dans x[0.25,3.3], sans commune mesure avec la reference ; cfg.DETR_GEOM='natif' restaure ce comportement, 'affine' remplace les deux ops par un RandomAffine aux parametres exacts d'Ultralytics. RF-DETR est desormais borne lui aussi, par son Affine, ses trois couches d'echelle natives etant coupees.
 
 ### Cisaillement / perspective
 
@@ -153,7 +153,7 @@ Les effets nommes par la reference, et ce que chaque depot en fait.
 
 - **Reference** : `gris 114 (YOLO)`
 - **YOLO26n / YOLO11n / YOLO12n** : 114
-- **RF-DETR-N** : sans objet
+- **RF-DETR-N** : Affine(fill=114)
 - **RT-DETR-R18 / D-FINE-N** : fill=114 (les depots utilisent du noir, fill=0)
 - **YOLOX-Nano** : 114 (borderValue de random_affine)
 - **Ecart** : Aucun apres harmonisation.
@@ -184,7 +184,7 @@ Ce que certains depots appliquent EN PLUS, sans qu'aucune cle du dict `AUG` en p
 
 - **Reference** : `absent : imgsz fixe a 640`
 - **YOLO26n / YOLO11n / YOLO12n** : multi_scale = False par defaut en detection
-- **RF-DETR-N** : multi_scale et expanded_scales sont a True par defaut : la resolution change d'un lot a l'autre. DESACTIVES par le benchmark (repli silencieux si la version les refuse)
+- **RF-DETR-N** : multi_scale, expanded_scales et scale_jitter sont actifs par defaut : resolution variable et recadrage interne. Les TROIS sont coupes par le benchmark (repli si la version les refuse)
 - **RT-DETR-R18 / D-FINE-N** : BatchImageCollateFunction neutralise par les configs retenues (scales: ~ pour RT-DETRv2-R18, base_size_repeat: ~ pour D-FINE-N)
 - **YOLOX-Nano** : multiscale_range mis a 0 par le benchmark (defaut 5, soit +/-160 px autour de 640)
 - **Ecart** : Sans cette harmonisation, RF-DETR aurait ete le seul a voir plusieurs resolutions, et YOLOX le seul autre a varier de +/-160 px.
@@ -211,7 +211,7 @@ Ce que certains depots appliquent EN PLUS, sans qu'aucune cle du dict `AUG` en p
 
 - **Reference** : `imgsz = 640`
 - **YOLO26n / YOLO11n / YOLO12n** : letterbox, ratio preserve, remplissage 114
-- **RF-DETR-N** : redimensionnement carre
+- **RF-DETR-N** : resolution=640 passee a RFDETRNano (defaut 384)
 - **RT-DETR-R18 / D-FINE-N** : Resize [640, 640]
 - **YOLOX-Nano** : letterbox, ratio preserve, remplissage 114
 - **Ecart** : Sans consequence ici : les tuiles sont deja carrees, 640 x 640.
@@ -268,7 +268,7 @@ AUG_RFDETR = {
     'HorizontalFlip': {'p': 0.5},
     'VerticalFlip': {'p': 0.5},
     'ColorJitter': {'brightness': 0.2, 'contrast': 0.0, 'saturation': 0.2, 'hue': 0, 'p': 1.0},
-    'Affine': {'scale': (0.75, 1.25), 'translate_percent': (-0.1, 0.1), 'rotate': (0, 0), 'shear': (0, 0), 'p': 1.0},
+    'Affine': {'scale': (0.75, 1.25), 'translate_percent': (-0.1, 0.1), 'rotate': (0, 0), 'shear': (0, 0), 'keep_ratio': True, 'fill': 114, 'p': 1.0},
 }
 ```
 

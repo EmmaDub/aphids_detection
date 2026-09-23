@@ -51,12 +51,19 @@ def _yolo_boxes_px(lbl, W, H):
     lbl = Path(lbl)
     if not lbl.exists():
         return out
-    for line in lbl.read_text().splitlines():
+    for numero, line in enumerate(lbl.read_text().splitlines(), start=1):
         s = line.split()
         if len(s) < 5:
             continue
         c = int(float(s[0]))
         xc, yc, bw, bh = (float(v) for v in s[1:5])
+        # Ultralytics refuse les labels non normalises ; ici la conversion
+        # passerait sans bruit et produirait des boites fausses pour les quatre
+        # autres frameworks. On prefere echouer sur le fichier fautif.
+        if not all(0.0 <= v <= 1.0 for v in (xc, yc, bw, bh)):
+            raise ValueError(
+                f"Label non normalise dans {lbl} (ligne {numero}) : "
+                f"xc={xc}, yc={yc}, bw={bw}, bh={bh} -- attendu dans [0, 1].")
         out.append((c + 1, (xc - bw / 2) * W, (yc - bh / 2) * H, bw * W, bh * H))
     return out
 

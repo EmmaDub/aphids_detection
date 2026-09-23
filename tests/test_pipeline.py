@@ -207,12 +207,27 @@ log.write_text('{"epoch": 0, "test_coco_eval_bbox": [0.11, 0.2]}\n'
                '{"epoch": 1, "test_coco_eval_bbox": [0.33, 0.4]}\n')
 assert arret_anticipe.lire_log_json(log) == [0.11, 0.33]
 ylog = Path(cfg.WORK_ROOT) / "train_log.txt"
-ylog.write_text(
-    " Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.123\n"
-    " Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = -1.000\n"
-    " Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.456\n")
-assert arret_anticipe.lire_log_yolox(ylog) == [0.123, 0.456]
-print("[lecteurs de journaux] DETR et YOLOX : OK")
+# Sortie reelle de summarize() de pycocotools : 12 lignes par evaluation, dont
+# 6 "Average Recall" qui partagent la plage IoU=0.50:0.95 et l'aire "all".
+# Une seule valeur doit en sortir, sinon la patience serait divisee par 4.
+SUMMARIZE = """ Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = {ap}
+ Average Precision  (AP) @[ IoU=0.50      | area=   all | maxDets=100 ] = 0.750
+ Average Precision  (AP) @[ IoU=0.75      | area=   all | maxDets=100 ] = 0.564
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.270
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.526
+ Average Precision  (AP) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = -1.000
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=  1 ] = 0.384
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets= 10 ] = 0.529
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.529
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = 0.367
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ] = 0.577
+ Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ] = -1.000
+"""
+ylog.write_text(SUMMARIZE.format(ap="0.123") + SUMMARIZE.format(ap="0.456"))
+lues = arret_anticipe.lire_log_yolox(ylog)
+assert lues == [0.123, 0.456], lues       # une valeur par evaluation, pas quatre
+print(f"[lecteurs de journaux] DETR : OK | YOLOX : {len(lues)} valeurs pour "
+      f"2 evaluations de 12 lignes")
 
 # --- 14. tracabilite : stopped_early dans le CSV ---
 assert "stopped_early" in bench.result_columns()

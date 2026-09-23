@@ -40,24 +40,37 @@ def build_fold_yaml(fold, neg_ratio=None):
 
 
 def _epochs_info(trainer):
-    """(meilleure epoque, derniere epoque) d'un entrainement Ultralytics."""
+    """(meilleure epoque, derniere epoque) d'un entrainement Ultralytics.
+
+    Les deux sont rendues 1-based : `trainer.epoch` et `stopper.best_epoch` sont
+    des index 0-based, la seconde etait renvoyee telle quelle et decalait
+    `best_epoch` d'une unite par rapport a `epochs_run`.
+
+    Le repli sur results.csv reproduit la FITNESS d'Ultralytics
+    (0.9 x mAP50-95 + 0.1 x mAP50), le critere qui choisit reellement best.pt ;
+    trier sur mAP50 seule pouvait designer une autre epoque.
+    """
     import pandas as pd
 
     last = int(getattr(trainer, "epoch", -1))
     if last >= 0:
-        last += 1
+        last += 1                                    # index 0-based -> nb d'epoques
     best = getattr(trainer, "best_epoch", None)
     if best is None or best < 0:
         stopper = getattr(trainer, "stopper", None)
         best = getattr(stopper, "best_epoch", None) if stopper is not None else None
     if best is not None and best >= 0:
-        return int(best), last
+        return int(best) + 1, last                   # 0-based -> 1-based
     try:
         d = pd.read_csv(Path(trainer.save_dir) / "results.csv")
         d.columns = [c.strip() for c in d.columns]
-        col = next((c for c in d.columns if "mAP50(B)" in c), None)
-        if col:
-            return int(d[col].idxmax()) + 1, last
+        col50 = next((c for c in d.columns if "mAP50(B)" in c and "95" not in c), None)
+        col5095 = next((c for c in d.columns if "mAP50-95(B)" in c), None)
+        if col5095 and col50:
+            fitness = 0.9 * d[col5095] + 0.1 * d[col50]
+            return int(fitness.idxmax()) + 1, last
+        if col50:
+            return int(d[col50].idxmax()) + 1, last
     except Exception:
         pass
     return -1, last

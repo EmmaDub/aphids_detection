@@ -184,20 +184,20 @@ def read_frozen(txt_frozen, verbose=True):
     """Relit une liste figee et la regreffe sur la racine de folds courante."""
     lignes = [l for l in Path(txt_frozen).read_text().splitlines() if l.strip()]
     chemins = [rebase(l) for l in lignes]
-    presents = [p for p in chemins if Path(p).exists()]
-    manquantes = len(chemins) - len(presents)
-    if verbose and manquantes:
-        alerte = "  ATTENTION : " if manquantes > 0.05 * len(chemins) else "  "
-        print(f"{alerte}liste figee {Path(txt_frozen).name} : {len(presents)}/"
-              f"{len(chemins)} tuiles retrouvees sous {cfg.FOLDS_ROOT}"
-              + (" -- l'entrainement ne portera pas sur le jeu figé complet, "
-                 "lancer folds.diagnose()" if alerte.strip() else ""))
-    if not presents:
+    absentes = [p for p in chemins if not Path(p).exists()]
+    if absentes:
+        # Une tuile manquante change le jeu d'entrainement sans le dire : les
+        # modeles ne verraient plus les memes donnees, ce qui vide de son sens
+        # la liste figee. On refuse de continuer plutot que d'avertir.
+        exemples = "\n  ".join(str(p) for p in absentes[:3])
+        suite = f"\n  ... et {len(absentes) - 3} autres" if len(absentes) > 3 else ""
         raise RuntimeError(
-            f"Aucune des {len(chemins)} tuiles de {txt_frozen} n'existe sous "
-            f"{cfg.FOLDS_ROOT}.\nLes folds ont-ils ete construits dans cette "
-            f"session ? Lancer folds.build_folds(), puis folds.diagnose().")
-    return presents
+            f"{len(absentes)} tuile(s) sur {len(chemins)} de la liste figee "
+            f"{Path(txt_frozen).name} sont introuvables sous {cfg.FOLDS_ROOT}.\n"
+            f"  {exemples}{suite}\n"
+            "Les folds ont-ils ete construits dans cette session ? Lancer "
+            "folds.build_folds(), puis folds.diagnose() pour le detail.")
+    return chemins
 
 
 def fold_train_paths(fold, neg_ratio=None, verbose=True):

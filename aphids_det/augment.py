@@ -48,10 +48,15 @@ AUG_RFDETR = {
     # Seule source d'echelle et de translation, bornee sur la reference : les
     # couches natives (scale_jitter, multi_scale) sont coupees a l'appel de
     # train() dans runners/rfdetr_runner.py.
+    # keep_ratio=True : sans lui albumentations tire les facteurs x et y
+    # independamment, la ou Ultralytics applique un facteur isotrope.
+    # fill=114 : meme gris que YOLO et YOLOX pour les bords decouverts
+    # (parametre nomme `fill` depuis albumentations 2.x, `cval` avant).
     "Affine": {"scale": (1 - AUG["scale"], 1 + AUG["scale"]),
                "translate_percent": (-AUG["translate"], AUG["translate"]),
                "rotate": (AUG["degrees"], AUG["degrees"]),
-               "shear": (AUG["shear"], AUG["shear"]), "p": 1.0},
+               "shear": (AUG["shear"], AUG["shear"]),
+               "keep_ratio": True, "fill": 114, "p": 1.0},
 }
 
 # Couches d'echelle natives de RF-DETR, coupees pour que l'Affine ci-dessus
@@ -131,7 +136,7 @@ _TABLE = [
                "saturait qu'une image sur deux, ont ete remplaces."),
     dict(effet="Luminosite / valeur", reference="hsv_v = 0.2",
          ultralytics="hsv_v=0.2",
-         rfdetr="RandomBrightnessContrast(brightness_limit=0.2, p=1)",
+         rfdetr="ColorJitter(brightness=0.2, p=1)",
          detr="ColorJitter(brightness=0.2)",
          yolox="gain multiplicatif x[0.8,1.2], applique systematiquement",
          ecart="Aucun depuis la reecriture de augment_hsv."),
@@ -141,18 +146,18 @@ _TABLE = [
          ecart="Aucun."),
     dict(effet="Translation", reference="translate = 0.1",
          ultralytics="translate=0.1",
-         rfdetr="position aleatoire du recadrage interne (branche B du OneOf)",
+         rfdetr="Affine(translate_percent=(-0.1, 0.1))",
          detr="position aleatoire du RandomIoUCrop (recadre 80-100% du cote)",
          yolox="translate=0.1 (random_affine)",
-         ecart="Aucun des trois DETR n'expose de translation : elle resulte du "
-               "tirage de position de leur recadrage interne (borne par "
-               "min_scale=0.8 chez RT-DETR et D-FINE, non reglable chez "
-               "RF-DETR). Amplitude du meme ordre que translate=0.1, loi "
+         ecart="RF-DETR a desormais une translation bornee explicitement, par "
+               "son Affine. Chez RT-DETR et D-FINE elle reste non parametrable : "
+               "elle resulte du tirage de position de RandomIoUCrop, borne par "
+               "min_scale=0.8. Amplitude du meme ordre que translate=0.1, loi "
                "differente."),
     dict(effet="Zoom / echelle", reference="scale = 0.25 (facteur [0.75,1.25])",
          ultralytics="scale=0.25",
-         rfdetr="OneOf : resize direct, ou resize 400/500/600 + recadrage + "
-                "resize 640 -- variation d'echelle reelle mais non parametrable",
+         rfdetr="Affine(scale=(0.75, 1.25), keep_ratio=True) ; scale_jitter, "
+                "multi_scale et expanded_scales coupes",
          detr="RandomZoomOut(side_range=(1.0,1.333)) -> x[0.75,1.0] et "
               "RandomIoUCrop(min_scale=0.8) -> x[1.0,1.25]",
          yolox="mosaic_scale=(0.75,1.25)",
@@ -161,7 +166,8 @@ _TABLE = [
                "x[0.25,3.3], sans commune mesure avec la reference ; "
                "cfg.DETR_GEOM='natif' restaure ce comportement, 'affine' "
                "remplace les deux ops par un RandomAffine aux parametres exacts "
-               "d'Ultralytics. RF-DETR reste sans zoom parametrable."),
+               "d'Ultralytics. RF-DETR est desormais borne lui aussi, par son "
+               "Affine, ses trois couches d'echelle natives etant coupees."),
     dict(effet="Cisaillement / perspective", reference="shear = 0, perspective = 0",
          ultralytics="shear=0, perspective=0", rfdetr="absent",
          detr="absent", yolox="shear=0.0",
@@ -206,7 +212,7 @@ _TABLE = [
                "centre sort du recadrage est supprimee. Ces deux modeles sont "
                "donc plus stricts que la regle, jamais plus laxistes."),
     dict(effet="Remplissage des bords vides", reference="gris 114 (YOLO)",
-         ultralytics="114", rfdetr="sans objet",
+         ultralytics="114", rfdetr="Affine(fill=114)",
          detr="fill=114 (les depots utilisent du noir, fill=0)",
          yolox="114 (borderValue de random_affine)",
          ecart="Aucun apres harmonisation."),
@@ -229,9 +235,9 @@ _TABLE = [
     dict(effet="Multi-echelle par lot", hors_reference=True,
          reference="absent : imgsz fixe a 640",
          ultralytics="multi_scale = False par defaut en detection",
-         rfdetr="multi_scale et expanded_scales sont a True par defaut : la "
-                "resolution change d'un lot a l'autre. DESACTIVES par le "
-                "benchmark (repli silencieux si la version les refuse)",
+         rfdetr="multi_scale, expanded_scales et scale_jitter sont actifs par "
+                "defaut : resolution variable et recadrage interne. Les TROIS "
+                "sont coupes par le benchmark (repli si la version les refuse)",
          detr="BatchImageCollateFunction neutralise par les configs retenues "
               "(scales: ~ pour RT-DETRv2-R18, base_size_repeat: ~ pour D-FINE-N)",
          yolox="multiscale_range mis a 0 par le benchmark (defaut 5, soit "
@@ -264,7 +270,7 @@ _TABLE = [
     dict(effet="Mise a 640 de la tuile", hors_reference=True,
          reference="imgsz = 640",
          ultralytics="letterbox, ratio preserve, remplissage 114",
-         rfdetr="redimensionnement carre",
+         rfdetr="resolution=640 passee a RFDETRNano (defaut 384)",
          detr="Resize [640, 640]",
          yolox="letterbox, ratio preserve, remplissage 114",
          ecart="Sans consequence ici : les tuiles sont deja carrees, 640 x 640."),

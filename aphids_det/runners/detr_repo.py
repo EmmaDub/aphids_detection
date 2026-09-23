@@ -206,10 +206,12 @@ def write_config(variant, fold, ds, out_dir, batch, work):
         },
     }
     if isinstance(train_dl.get("collate_fn"), dict):
-        # collate_fn laisse natif lui aussi : son stop_epoch ne pilote que le
-        # multi-echelle par lot, deja neutralise par les configs retenues
-        # (scales: ~ chez RT-DETRv2-R18, base_size_repeat: ~ chez D-FINE-N).
-        pass
+        # collate_fn.stop_epoch ne pilote PAS que le multi-echelle : dans
+        # src/solver/det_solver.py de D-FINE, quand epoch atteint stop_epoch le
+        # solver recharge best_stg1.pth et redemarre l'EMA (entrainement en deux
+        # etapes). La valeur native de dfine_n vaut 148, sous notre plafond de
+        # 150 : elle se declencherait. On la repousse au-dela.
+        over["train_dataloader"]["collate_fn"] = {"stop_epoch": cfg.MAX_EPOCHS + 1}
     if variant == "rtdetr_v1":
         over["checkpoint_step"] = 1                # v1 ne sauvegarde pas de best.pth
 
@@ -308,10 +310,31 @@ def read_log(out_dir):
 def best_checkpoint(variant, out_dir, best_epoch, cleanup=True):
     """Chemin des poids retenus : `best*.pth` du depot, sinon l'epoque la plus forte."""
     out_dir = Path(out_dir)
-    for name in SPECS[variant]["best_names"]:
-        p = out_dir / name
-        if p.exists():
-            return p
+    candidats = [out_dir / n for n in SPECS[variant]["best_names"]
+                 if (out_dir / n).exists()]
+    if len(candidats) > 1:
+        # D-FINE ecrit best_stg1 avant stop_epoch et best_stg2 apres : aucun des
+        # deux n'est meilleur par construction. On tranche sur l'AP que le
+        # journal donne a l'epoque ou chaque fichier a ete sauvegarde
+        # (state_dict() du solver contient last_epoch).
+        import torch
+
+        valeurs = arret_anticipe.lire_log_json(out_dir / "log.txt")
+        notes = []
+        for p in candidats:
+            try:
+                etat = torch.load(str(p), map_location="cpu", weights_only=False)
+                epoque = int(etat.get("last_epoch", -1)) + 1
+            except Exception:
+                epoque = -1
+            ap = valeurs[epoque - 1] if 0 < epoque <= len(valeurs) else -1.0
+            notes.append((ap, epoque, p))
+        notes.sort(key=lambda t: t[0], reverse=True)
+        print("  checkpoints candidats : "
+              + ", ".join(f"{p.name} (epoque {e}, AP {a:.4f})" for a, e, p in notes))
+        return notes[0][2]
+    if candidats:
+        return candidats[0]
     # RT-DETR v1 : checkpoint{epoch:04}.pth sauvegarde a chaque epoque
     if best_epoch and best_epoch > 0:
         p = out_dir / f"checkpoint{best_epoch - 1:04}.pth"

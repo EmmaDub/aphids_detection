@@ -73,7 +73,10 @@ def run_fold(fold):
     out_dir = Path(cfg.WORK_ROOT) / "runs" / f"rfdetr_fold{fold}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    model = RFDETRNano()
+    # RFDETRNanoConfig.resolution vaut 384 : sans cet argument, RF-DETR
+    # s'entrainerait a une resolution inferieure aux six autres modeles.
+    # 640 est bien divisible par patch_size * num_windows = 16 * 2.
+    model = RFDETRNano(resolution=cfg.IMGSZ)
     kwargs = dict(dataset_dir=str(ds), epochs=cfg.MAX_EPOCHS, batch_size=batch,
                   grad_accum_steps=accum, output_dir=str(out_dir),
                   early_stopping=True,
@@ -112,9 +115,9 @@ def run_fold(fold):
               f"n'ont pas")
     train_time = round(time.time() - t0, 1)
 
-    # Meme lecture de journal que les DETR : une seule definition de la
-    # meilleure epoque pour tout le benchmark.
-    valeurs = arret_anticipe.lire_log_json(out_dir / "log.txt")
+    # La branche Lightning de rfdetr journalise dans metrics.csv, pas dans le
+    # log.txt JSON de l'ancien moteur : val/ema_mAP_50_95 par epoque.
+    valeurs = arret_anticipe.lire_metrics_csv(out_dir / "metrics.csv")
     best_epoch = (max(range(len(valeurs)), key=lambda i: valeurs[i]) + 1
                   if valeurs else -1)
     epochs_run = len(valeurs) if valeurs else -1
@@ -129,13 +132,28 @@ def run_fold(fold):
             shutil.copy2(src, saved)
             break
 
+    # `train()` se termine par `self.model.model = module.model` : l'objet en
+    # memoire porte les poids de la DERNIERE epoque, pas le meilleur EMA. On
+    # recharge donc le checkpoint sauvegarde, comme pour les autres frameworks.
+    evalue = model
+    if saved.exists():
+        try:
+            evalue = RFDETRNano.from_checkpoint(str(saved), trust_checkpoint=True)
+            print(f"  RF-DETR : evaluation sur {saved.name} (meilleur EMA)")
+        except Exception as e:
+            print(f"  RF-DETR : rechargement de {saved.name} impossible "
+                  f"({type(e).__name__}: {e}) -- evaluation sur la derniere epoque")
+    else:
+        print("  RF-DETR : aucun checkpoint sauvegarde, evaluation sur la "
+              "derniere epoque")
+
     gt_json = cocoify.val_gt_json(fold)
     dt_json = Path(cfg.PRED_DIR) / f"{MODELE}_fold{fold}.json"
-    predict_coco(model, fold_val_paths(fold), gt_json, dt_json)
+    predict_coco(evalue, fold_val_paths(fold), gt_json, dt_json)
 
     metrics = evaluate.evaluate_predictions(gt_json, dt_json)
-    lat, lat_std = bench.latency_cpu_ms(model)
-    stats = bench.model_stats(model, saved if saved.exists() else None)
+    lat, lat_std = bench.latency_cpu_ms(evalue)
+    stats = bench.model_stats(evalue, saved if saved.exists() else None)
 
     row = bench.base_row(MODELE, "rfdetr", fold, npos, nneg,
                          best_epoch=best_epoch, epochs_run=epochs_run,

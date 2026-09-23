@@ -269,7 +269,11 @@ NOTEBOOKS["02_rfdetr.ipynb"] = notebook(
         "de tuiles. Batch 8 x 4 = 32 effectif. Augmentation : `augment.AUG_RFDETR`.",
         code("""
 # --- Installation ---
-!pip install -q "rfdetr[train,loggers]" pycocotools wandb
+# Version epinglee : l'API de rfdetr bouge vite (moteur PyTorch Lightning,
+# noms des metriques de metrics.csv, arguments de train()). albumentations est
+# installe explicitement : c'est le backend d'augmentation de rfdetr, et
+# aug_config n'a aucun effet sans lui.
+!pip install -q "rfdetr[train,loggers]==1.10.1" "albumentations==2.0.8" pycocotools wandb
 """),
     ) + [
         code("""

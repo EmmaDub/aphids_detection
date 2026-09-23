@@ -78,13 +78,37 @@ def hyperparameters_table():
     return pd.DataFrame(rows)
 
 
-def summary(df=None):
-    """Moyennes par modele sur les folds, triees par mAP50."""
+def summary(df=None, ecarts=True):
+    """Moyennes par modele sur les folds, triees par mAP50.
+
+    Avec `ecarts=True`, chaque metrique de qualite recoit une colonne
+    `<metrique>_std` : l'ecart-type entre folds, indispensable pour savoir si un
+    ecart entre deux modeles depasse la variabilite de la validation croisee.
+    """
     df = pd.read_csv(cfg.CSV_CV) if df is None else df
     num = [c for c in df.columns
-           if c not in ("modele", "fold", "framework", "date", "repo_commit", "notes")
+           if c not in ("modele", "fold", "framework", "date", "repo_commit",
+                        "versions", "notes")
            and pd.api.types.is_numeric_dtype(df[c])]
     moy = df.groupby("modele")[num].mean().round(4).reset_index()
+
+    if ecarts:
+        classes = [c for c in num
+                   if c.startswith(tuple(cfg.CLASS_NAMES.values()))]
+        cibles = [c for c in ("map50_macro", "map5095_macro", *classes) if c in num]
+        std = (df.groupby("modele")[cibles].std(ddof=1).round(4)
+               .rename(columns={c: f"{c}_std" for c in cibles}).reset_index())
+        moy = moy.merge(std, on="modele")
+        # chaque ecart-type juste apres sa moyenne
+        ordre = ["modele"]
+        for c in moy.columns:
+            if c in ("modele",) or c.endswith("_std"):
+                continue
+            ordre.append(c)
+            if f"{c}_std" in moy.columns:
+                ordre.append(f"{c}_std")
+        moy = moy[ordre]
+
     counts = df.groupby("modele")["fold"].count().rename("n_folds").reset_index()
     moy = moy.merge(counts, on="modele")
     return moy.sort_values("map50_macro", ascending=False).reset_index(drop=True)
@@ -104,7 +128,8 @@ def to_excel(path=None):
         moy.to_excel(w, sheet_name="moyennes_par_modele", index=False)
 
     print("Excel ecrit ->", path)
-    cols = ["modele", "n_folds", "map50_macro", "map5095_macro",
+    cols = ["modele", "n_folds", "map50_macro", "map50_macro_std",
+            "map5095_macro", "map5095_macro_std",
             "latency_cpu_ms", "n_params_M", "size_MB", "train_time_s"]
     print("\n=== Moyennes par modele (triees par mAP50) ===")
     print(moy[[c for c in cols if c in moy.columns]].to_string(index=False))

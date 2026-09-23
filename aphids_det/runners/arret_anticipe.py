@@ -85,8 +85,13 @@ def lire_log_json(journal, cle="test_coco_eval_bbox", indice=0):
     return valeurs
 
 
+# `summarize()` de pycocotools ecrit 12 lignes par evaluation, dont 6 "Average
+# Recall" qui partagent la plage IoU=0.50:0.95 et l'aire "all". Sans le prefixe
+# "Average Precision" et sans maxDets=100, la regex en attrapait 4 par epoque :
+# la patience etait divisee par 4.
 _AP_YOLOX = re.compile(
-    r"IoU=0\.50:0\.95\s*\|\s*area=\s*all\s*\|\s*maxDets=\s*\d+\s*\]\s*=\s*([-\d.]+)")
+    r"Average Precision\s+\(AP\)\s*@\[\s*IoU=0\.50:0\.95\s*\|\s*area=\s*all\s*"
+    r"\|\s*maxDets=\s*100\s*\]\s*=\s*([-\d.]+)")
 
 
 def lire_log_yolox(journal):
@@ -96,6 +101,30 @@ def lire_log_yolox(journal):
         return []
     return [float(v) for v in _AP_YOLOX.findall(journal.read_text(errors="replace"))
             if float(v) >= 0]
+
+
+def lire_metrics_csv(journal, colonnes=("val/ema_mAP_50_95", "val/mAP_50_95")):
+    """mAP50-95 par epoque, lues dans le `metrics.csv` de RF-DETR.
+
+    La branche PyTorch Lightning de rfdetr journalise par `CSVLogger(save_dir=
+    output_dir, name="", version="")`, qui ecrit donc `<output_dir>/metrics.csv`.
+    Les colonnes utiles sont `val/ema_mAP_50_95` et `val/mAP_50_95` (cf.
+    rfdetr/training/callbacks/coco_eval.py) ; la premiere disponible est prise,
+    l'EMA d'abord puisque c'est `checkpoint_best_ema.pth` qui est evalue.
+    """
+    import csv
+
+    journal = Path(journal)
+    if not journal.exists():
+        return []
+    with journal.open(newline="") as f:
+        lignes = list(csv.DictReader(f))
+    for colonne in colonnes:
+        valeurs = [float(l[colonne]) for l in lignes
+                   if l.get(colonne) not in (None, "")]
+        if valeurs:
+            return valeurs
+    return []
 
 
 # ------------------------------------------------------------- surveillance
