@@ -106,8 +106,12 @@ def run_fold(modele, weights, fold):
 
     model = YOLO(weights)
     t0 = time.time()
-    model.train(data=str(yml), epochs=cfg.EPOCHS, batch=batch, imgsz=cfg.IMGSZ,
-                seed=cfg.SEED, verbose=False, val=True, patience=cfg.PATIENCE,
+    # close_mosaic=0 : pas de coupure d'augmentation de fin. Avec un early
+    # stopping, la fin d'entrainement varie d'un modele a l'autre, une coupure
+    # a epoque fixe s'appliquerait de facon incoherente.
+    model.train(data=str(yml), epochs=cfg.MAX_EPOCHS, batch=batch, imgsz=cfg.IMGSZ,
+                seed=cfg.SEED, verbose=False, val=True,
+                patience=cfg.EARLY_STOP_PATIENCE, close_mosaic=0,
                 project=PROJECT, name=f"{modele}_fold{fold}", exist_ok=True, **AUG)
     train_time = round(time.time() - t0, 1)
 
@@ -132,8 +136,11 @@ def run_fold(modele, weights, fold):
     lat, lat_std = bench.latency_cpu_ms(best)
     stats = bench.model_stats(best, saved)
 
+    # plafond atteint = l'early stopping n'a pas eu le dernier mot
+    stopped_early = 0 < epochs_run < cfg.MAX_EPOCHS
     return bench.base_row(modele, "ultralytics", fold, npos, nneg,
                           best_epoch=best_epoch, epochs_run=epochs_run,
+                          stopped_early=stopped_early,
                           train_time_s=train_time, latency_cpu_ms=round(lat, 3),
                           latency_std_ms=round(lat_std, 3),
                           notes=f"poids={weights} ; bloc albumentations "

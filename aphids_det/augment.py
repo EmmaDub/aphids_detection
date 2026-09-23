@@ -104,8 +104,10 @@ AUG_YOLOX = {
     # Gain HSV MULTIPLICATIF x[0.8, 1.2], comme la reference : le decalage
     # additif natif de YOLOX est remplace dans assets/yolox_exp_aphids.py.
     "hsv_gain": AUG["hsv_s"],
-    # Analogue natif de close_mosaic, laisse a sa valeur YOLOX.
-    "no_aug_epochs": 15,
+    # Coupure d'augmentation de fin SUPPRIMEE : avec un early stopping, la fin
+    # d'entrainement varie d'un modele a l'autre, une coupure a epoque fixe
+    # s'appliquerait donc de facon incoherente. L'augmentation reste constante.
+    "no_aug_epochs": 0,
 }
 
 # ============================================================================
@@ -176,10 +178,10 @@ _TABLE = [
          detr="RandomHorizontalFlip(p=0.5)", yolox="flip_prob=0.5",
          ecart="Aucun."),
     dict(effet="Mosaique", reference="mosaic = 1",
-         ultralytics="mosaic=1.0 (coupee sur les 10 dernieres epoques, close_mosaic)",
+         ultralytics="mosaic=1.0, constante sur tout le run (close_mosaic=0)",
          rfdetr="absente du framework",
          detr="absente des deux depots (aucune transform Mosaic dans leur registre)",
-         yolox="mosaic_prob=1.0, no_aug_epochs=10",
+         yolox="mosaic_prob=1.0, constante sur tout le run (no_aug_epochs=0)",
          ecart="ECART MAJEUR : ni RF-DETR, ni RT-DETR, ni D-FINE ne proposent de "
                "mosaique. Les trois DETR sont entraines sans."),
     dict(effet="MixUp / CutMix", reference="mixup = 0, cutmix = 0",
@@ -238,15 +240,18 @@ _TABLE = [
                "plusieurs resolutions, et YOLOX le seul autre a varier de "
                "+/-160 px."),
     dict(effet="Coupure des augmentations en fin d'entrainement", hors_reference=True,
-         reference="close_mosaic = 10 (defaut Ultralytics)",
-         ultralytics="close_mosaic=10 : mosaique coupee sur les 10 dernieres epoques",
-         rfdetr="aucun mecanisme de ce type",
-         detr="politique stop_epoch : ColorJitter, ZoomOut et IoUCrop coupes a "
-              "partir de l'epoque 20 sur 30",
-         yolox="no_aug_epochs=15 (valeur native)",
-         ecart="Chaque depot garde son mecanisme natif : 10 dernieres epoques "
-               "chez Ultralytics et les DETR, 15 chez YOLOX. RF-DETR n'offre "
-               "aucun reglage de ce type."),
+         reference="supprimee partout",
+         ultralytics="close_mosaic=0 (defaut 10 : desactive)",
+         rfdetr="aucun mecanisme de ce type, donc rien a desactiver",
+         detr="politique stop_epoch repoussee au-dela du plafond, donc inerte",
+         yolox="no_aug_epochs=0 (defaut 15 : desactive)",
+         ecart="RESIDU ASSUME. Avec un early stopping, la fin d'entrainement "
+               "varie d'un modele a l'autre et d'un fold a l'autre : une coupure "
+               "a epoque fixe s'appliquerait de facon incoherente. Aucun modele "
+               "n'a donc de queue d'entrainement propre, et YOLO comme YOLOX "
+               "perdent le petit gain que leur donnaient close_mosaic et "
+               "no_aug_epochs. L'augmentation reste constante sur toute la duree "
+               "de chaque run, pour tous."),
     dict(effet="Plage des pixels et normalisation", hors_reference=True,
          reference="non specifie (pretraitement, pas augmentation)",
          ultralytics="0-1, RGB",

@@ -105,7 +105,8 @@ def result_columns():
     """Ordre de colonnes du CSV de resultats."""
     return (["date", "modele", "framework", "fold", "map50_macro", "map5095_macro"]
             + _class_columns()
-            + ["best_epoch", "epochs_run", "epochs_budget", "train_time_s",
+            + ["best_epoch", "epochs_run", "stopped_early", "epochs_budget",
+               "train_time_s",
                "latency_cpu_ms", "latency_std_ms", "n_params_M", "size_MB", "ckpt_MB",
                "batch", "grad_accum", "batch_effectif", "imgsz", "neg_ratio",
                "n_pucerons_train", "n_fonds_train", "repo_commit", "notes"])
@@ -141,10 +142,14 @@ def base_row(modele, framework, fold, npos, nneg, **extra):
     row = {
         "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "modele": modele, "framework": framework, "fold": int(fold),
-        "epochs_budget": cfg.EPOCHS, "imgsz": cfg.IMGSZ, "neg_ratio": cfg.NEG_RATIO,
+        "epochs_budget": cfg.MAX_EPOCHS, "imgsz": cfg.IMGSZ,
+        "neg_ratio": cfg.NEG_RATIO,
         "batch": batch, "grad_accum": accum, "batch_effectif": batch * accum,
         "n_pucerons_train": npos, "n_fonds_train": nneg,
-        "best_epoch": -1, "epochs_run": -1, "repo_commit": "", "notes": "",
+        # stopped_early = False signale que le plafond MAX_EPOCHS a ete atteint,
+        # donc qu'il est trop bas pour ce modele.
+        "best_epoch": -1, "epochs_run": -1, "stopped_early": None,
+        "repo_commit": "", "notes": "",
     }
     row.update(extra)
     return row
@@ -177,6 +182,8 @@ def run_cv(modele, run_fold, folds=None, csv_path=None, force=False):
             save_rows(rows, csv_path)
             print(f"  OK {modele} fold{fold} : map50={row.get('map50_macro')} "
                   f"| map50-95={row.get('map5095_macro')} "
+                  f"| best_epoch={row.get('best_epoch')}/{row.get('epochs_run')} "
+                  f"| arret anticipe={row.get('stopped_early')} "
                   f"| latence_cpu={row.get('latency_cpu_ms')} ms", flush=True)
         except Exception as e:
             print(f"  ERREUR {modele} fold{fold} : {type(e).__name__}: {e}")
@@ -196,7 +203,11 @@ def wandb_run(modele, fold, config_extra=None):
         import wandb
         return wandb.init(project=cfg.WANDB_PROJECT, name=f"{modele}_fold{fold}",
                           reinit=True, config={"modele": modele, "fold": fold,
-                                               "epochs": cfg.EPOCHS,
+                                               "max_epochs": cfg.MAX_EPOCHS,
+                                               "early_stop_patience":
+                                                   cfg.EARLY_STOP_PATIENCE,
+                                               "early_stop_min_delta":
+                                                   cfg.EARLY_STOP_MIN_DELTA,
                                                "imgsz": cfg.IMGSZ,
                                                "neg_ratio": cfg.NEG_RATIO,
                                                **(config_extra or {})})
@@ -205,13 +216,18 @@ def wandb_run(modele, fold, config_extra=None):
         return None
 
 
-def wandb_finish(run, summary=None):
+def wandb_finish(run, summary=None, suivi=None):
+    """Cloture le run W&B. `suivi` remonte best_epoch, epochs_run, stopped_early."""
     if run is None:
         return
     try:
         if summary:
             run.summary.update({k: v for k, v in summary.items()
                                 if isinstance(v, (int, float))})
+        if suivi:
+            run.summary.update({k: suivi.get(k) for k in
+                                ("best_epoch", "epochs_run", "stopped_early")
+                                if k in suivi})
         run.finish()
     except Exception:
         pass

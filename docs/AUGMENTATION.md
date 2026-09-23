@@ -125,10 +125,10 @@ Les effets nommes par la reference, et ce que chaque depot en fait.
 ### Mosaique
 
 - **Reference** : `mosaic = 1`
-- **YOLO26n / YOLO11n / YOLO12n** : mosaic=1.0 (coupee sur les 10 dernieres epoques, close_mosaic)
+- **YOLO26n / YOLO11n / YOLO12n** : mosaic=1.0, constante sur tout le run (close_mosaic=0)
 - **RF-DETR-N** : absente du framework
 - **RT-DETR-R18 / D-FINE-N** : absente des deux depots (aucune transform Mosaic dans leur registre)
-- **YOLOX-Nano** : mosaic_prob=1.0, no_aug_epochs=10
+- **YOLOX-Nano** : mosaic_prob=1.0, constante sur tout le run (no_aug_epochs=0)
 - **Ecart** : ECART MAJEUR : ni RF-DETR, ni RT-DETR, ni D-FINE ne proposent de mosaique. Les trois DETR sont entraines sans.
 
 ### MixUp / CutMix
@@ -191,12 +191,12 @@ Ce que certains depots appliquent EN PLUS, sans qu'aucune cle du dict `AUG` en p
 
 ### Coupure des augmentations en fin d'entrainement
 
-- **Reference** : `close_mosaic = 10 (defaut Ultralytics)`
-- **YOLO26n / YOLO11n / YOLO12n** : close_mosaic=10 : mosaique coupee sur les 10 dernieres epoques
-- **RF-DETR-N** : aucun mecanisme de ce type
-- **RT-DETR-R18 / D-FINE-N** : politique stop_epoch : ColorJitter, ZoomOut et IoUCrop coupes a partir de l'epoque 20 sur 30
-- **YOLOX-Nano** : no_aug_epochs=15 (valeur native)
-- **Ecart** : Chaque depot garde son mecanisme natif : 10 dernieres epoques chez Ultralytics et les DETR, 15 chez YOLOX. RF-DETR n'offre aucun reglage de ce type.
+- **Reference** : `supprimee partout`
+- **YOLO26n / YOLO11n / YOLO12n** : close_mosaic=0 (defaut 10 : desactive)
+- **RF-DETR-N** : aucun mecanisme de ce type, donc rien a desactiver
+- **RT-DETR-R18 / D-FINE-N** : politique stop_epoch repoussee au-dela du plafond, donc inerte
+- **YOLOX-Nano** : no_aug_epochs=0 (defaut 15 : desactive)
+- **Ecart** : RESIDU ASSUME. Avec un early stopping, la fin d'entrainement varie d'un modele a l'autre et d'un fold a l'autre : une coupure a epoque fixe s'appliquerait de facon incoherente. Aucun modele n'a donc de queue d'entrainement propre, et YOLO comme YOLOX perdent le petit gain que leur donnaient close_mosaic et no_aug_epochs. L'augmentation reste constante sur toute la duree de chaque run, pour tous.
 
 ### Plage des pixels et normalisation
 
@@ -288,7 +288,7 @@ AUG_YOLOX = {
     'shear': 0.0,
     'perspective': 0.0,
     'hsv_gain': 0.2,
-    'no_aug_epochs': 15,
+    'no_aug_epochs': 0,
 }
 ```
 

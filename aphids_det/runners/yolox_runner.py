@@ -17,6 +17,7 @@ from pathlib import Path
 from .. import bench, cocoify, config as cfg, evaluate, external
 from ..augment import AUG_YOLOX
 from ..folds import fold_val_paths
+from . import arret_anticipe
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 MODELE = "YOLOX-Nano"
@@ -53,7 +54,7 @@ def write_exp(repo, fold, ds, out_dir):
         "seed": cfg.SEED,
         "min_visibility": cfg.MIN_VISIBILITY,
         "imgsz": cfg.IMGSZ,
-        "epochs": cfg.EPOCHS,
+        "epochs": cfg.MAX_EPOCHS,
         "output_dir": str(out_dir),
         "exp_name": f"yolox_nano_fold{fold}",
         **{k: (list(v) if isinstance(v, tuple) else v) for k, v in AUG_YOLOX.items()},
@@ -62,15 +63,29 @@ def write_exp(repo, fold, ds, out_dir):
     return exp_py
 
 
-def train(repo, exp_py, ckpt, batch):
-    """Lance tools/train.py et renvoie le batch reellement utilise."""
+def train(repo, exp_py, ckpt, batch, run_dir):
+    """Lance tools/train.py sous surveillance d'early stopping.
+
+    YOLOX n'a pas d'arret anticipe : on lit le mAP50-95 que son evaluateur
+    ecrit dans `train_log.txt` a chaque evaluation, et on met fin au processus
+    quand la patience commune est epuisee. `best_ckpt.pth` est deja sauvegarde
+    par YOLOX a chaque amelioration.
+
+    Renvoie (batch reellement utilise, surveillant).
+    """
     # tools/train.py de YOLOX n'a pas de flag --seed : la graine passe par l'Exp.
     def build(b):
         return [sys.executable, "tools/train.py", "-f", str(exp_py),
                 "-d", "1", "-b", str(b), "--fp16", "-c", str(ckpt)]
 
-    _out, used = external.run_with_oom_retry(build, batch, cwd=repo)
-    return used
+    surveillant = arret_anticipe.Surveillant(
+        cfg.EARLY_STOP_PATIENCE, cfg.EARLY_STOP_MIN_DELTA, nom=MODELE)
+    surveillance = arret_anticipe.SurveillanceJournal(
+        Path(run_dir) / "train_log.txt", arret_anticipe.lire_log_yolox, surveillant)
+
+    _out, used = external.run_with_oom_retry(build, batch, cwd=repo,
+                                             surveillance=surveillance)
+    return used, surveillant
 
 
 def predict_coco(model, exp, images, gt_json, out_json, device="cuda", batch=8):
@@ -136,12 +151,11 @@ def run_fold(fold, repo=None, commit="", install=False):
     ckpt0 = external.pretrained("yolox_nano")
     batch, _ = cfg.batch_for("yolox")
 
+    run_dir = out_dir / f"yolox_nano_fold{fold}"
     run = bench.wandb_run(MODELE, fold, {"batch": batch})
     t0 = time.time()
-    used_batch = train(repo, exp_py, ckpt0, batch)
+    used_batch, surveillant = train(repo, exp_py, ckpt0, batch, run_dir)
     train_time = round(time.time() - t0, 1)
-
-    run_dir = out_dir / f"yolox_nano_fold{fold}"
     best = run_dir / "best_ckpt.pth"
     if not best.exists():
         best = run_dir / "latest_ckpt.pth"
@@ -175,13 +189,14 @@ def run_fold(fold, repo=None, commit="", install=False):
 
     row = bench.base_row(MODELE, "yolox", fold, npos, nneg,
                          best_epoch=best_epoch, epochs_run=epochs_run,
+                         stopped_early=surveillant.declenche,
                          train_time_s=train_time, latency_cpu_ms=round(lat, 3),
                          latency_std_ms=round(lat_std, 3), batch=used_batch,
                          batch_effectif=used_batch, repo_commit=commit,
                          notes="flip vertical et gains HSV ajoutes par patch "
                                "(cf. assets/yolox_exp_aphids.py)",
                          **stats, **metrics)
-    bench.wandb_finish(run, metrics)
+    bench.wandb_finish(run, metrics, suivi=row)
     return row
 
 

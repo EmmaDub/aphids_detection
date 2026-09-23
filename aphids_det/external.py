@@ -41,8 +41,13 @@ OOM_PATTERNS = re.compile(r"out of memory|CUDA out of memory|CUBLAS_STATUS_ALLOC
 
 
 # ------------------------------------------------------------------ commandes
-def run(cmd, cwd=None, env=None, check=True, echo=True):
-    """Lance une commande en streamant sa sortie. Renvoie (code, sortie)."""
+def run(cmd, cwd=None, env=None, check=True, echo=True, surveillance=None):
+    """Lance une commande en streamant sa sortie. Renvoie (code, sortie).
+
+    `surveillance` (cf. runners/arret_anticipe.SurveillanceJournal) peut mettre
+    fin au processus en cours de route : un arret anticipe n'est alors PAS une
+    erreur, meme si le code de retour est non nul.
+    """
     if isinstance(cmd, str):
         cmd = cmd.split()
     cmd = [str(c) for c in cmd]
@@ -52,28 +57,41 @@ def run(cmd, cwd=None, env=None, check=True, echo=True):
     proc = subprocess.Popen(cmd, cwd=str(cwd) if cwd else None, env=full_env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, bufsize=1)
+    if surveillance is not None:
+        surveillance.demarrer(proc)
     lines = []
-    for line in proc.stdout:
-        lines.append(line)
-        if echo:
-            sys.stdout.write(line)
-            sys.stdout.flush()
-    proc.wait()
+    try:
+        for line in proc.stdout:
+            lines.append(line)
+            if echo:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+        proc.wait()
+    finally:
+        if surveillance is not None:
+            surveillance.arreter()
     out = "".join(lines)
+    if surveillance is not None and surveillance.interrompu:
+        return 0, out                      # arret voulu : on ne leve pas d'erreur
     if check and proc.returncode != 0:
         raise RuntimeError(f"Commande echouee (code {proc.returncode}) : {' '.join(cmd)}\n"
                            f"{out[-3000:]}")
     return proc.returncode, out
 
 
-def run_with_oom_retry(build_cmd, batch, cwd=None, retries=None, min_batch=1):
+def run_with_oom_retry(build_cmd, batch, cwd=None, retries=None, min_batch=1,
+                       surveillance=None):
     """Lance `build_cmd(batch)` et divise le batch par 2 en cas d'OOM CUDA.
+
+    `surveillance` est transmise a `run` : elle peut arreter l'entrainement des
+    que l'early stopping se declenche.
 
     Renvoie (sortie, batch reellement utilise).
     """
     retries = cfg.AUTO_BATCH_RETRY if retries is None else retries
     for attempt in range(retries + 1):
-        code, out = run(build_cmd(batch), cwd=cwd, check=False)
+        code, out = run(build_cmd(batch), cwd=cwd, check=False,
+                        surveillance=surveillance)
         if code == 0:
             return out, batch
         if OOM_PATTERNS.search(out) and attempt < retries and batch // 2 >= min_batch:

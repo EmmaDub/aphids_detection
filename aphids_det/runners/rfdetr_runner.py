@@ -14,6 +14,7 @@ from pathlib import Path
 from .. import augment, bench, cocoify, config as cfg, evaluate
 from ..augment import AUG_RFDETR, patch_rfdetr_visibility
 from ..folds import fold_val_paths
+from . import arret_anticipe
 
 MODELE = "RF-DETR-N"
 # `predict` renvoie des class_id 0-based ; les categories COCO du benchmark sont
@@ -73,10 +74,12 @@ def run_fold(fold):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     model = RFDETRNano()
-    kwargs = dict(dataset_dir=str(ds), epochs=cfg.EPOCHS, batch_size=batch,
+    kwargs = dict(dataset_dir=str(ds), epochs=cfg.MAX_EPOCHS, batch_size=batch,
                   grad_accum_steps=accum, output_dir=str(out_dir),
-                  early_stopping=True, early_stopping_patience=cfg.PATIENCE,
-                  early_stopping_min_delta=0.001, early_stopping_use_ema=True,
+                  early_stopping=True,
+                  early_stopping_patience=cfg.EARLY_STOP_PATIENCE,
+                  early_stopping_min_delta=cfg.EARLY_STOP_MIN_DELTA,
+                  early_stopping_use_ema=True,
                   aug_config=AUG_RFDETR)
     # Couches d'echelle natives de RF-DETR (scale_jitter : branche recadrage du
     # OneOf ; multi_scale et expanded_scales : resolution variable d'un lot a
@@ -109,6 +112,14 @@ def run_fold(fold):
               f"n'ont pas")
     train_time = round(time.time() - t0, 1)
 
+    # Meme lecture de journal que les DETR : une seule definition de la
+    # meilleure epoque pour tout le benchmark.
+    valeurs = arret_anticipe.lire_log_json(out_dir / "log.txt")
+    best_epoch = (max(range(len(valeurs)), key=lambda i: valeurs[i]) + 1
+                  if valeurs else -1)
+    epochs_run = len(valeurs) if valeurs else -1
+    stopped_early = 0 < epochs_run < cfg.MAX_EPOCHS
+
     # Poids retenus par RF-DETR (EMA si disponible)
     saved = Path(cfg.SAVE_DIR) / f"{MODELE}_fold{fold}.pth"
     for name in ("checkpoint_best_ema.pth", "checkpoint_best_total.pth",
@@ -127,15 +138,17 @@ def run_fold(fold):
     stats = bench.model_stats(model, saved if saved.exists() else None)
 
     row = bench.base_row(MODELE, "rfdetr", fold, npos, nneg,
+                         best_epoch=best_epoch, epochs_run=epochs_run,
+                         stopped_early=stopped_early,
                          train_time_s=train_time, latency_cpu_ms=round(lat, 3),
                          latency_std_ms=round(lat_std, 3),
-                         notes=f"early stopping natif (patience {cfg.PATIENCE}) ; "
+                         notes=f"early stopping natif (patience {cfg.EARLY_STOP_PATIENCE}) ; "
                                f"visibilite min "
                                f"{'non applicable' if seuil is None else f'{seuil:.0%}'} ; "
                                f"couches d'echelle coupees : "
                                f"{', '.join(coupees) or 'aucune'}",
                          **stats, **metrics)
-    bench.wandb_finish(run, metrics)
+    bench.wandb_finish(run, metrics, suivi=row)
     return row
 
 

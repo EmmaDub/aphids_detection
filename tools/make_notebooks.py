@@ -105,9 +105,11 @@ cfg.NEG_RATIO = 3
 # --- SORTIES (Drive) et budget ---
 cfg.OUT_DIR = Path("/content/drive/MyDrive/Emma/puceron_model_2026/"
                    "puceron_model_article/data")
-cfg.EPOCHS = 30
+cfg.MAX_EPOCHS = 150          # plafond genereux : c'est l'early
+                              # stopping qui doit arreter, pas lui
 cfg.IMGSZ = 640
-cfg.PATIENCE = 5
+cfg.EARLY_STOP_PATIENCE = 12  # meme regle pour les sept modeles
+cfg.EARLY_STOP_MIN_DELTA = 0.001
 cfg.SEED = 42
 cfg.USE_WANDB = True
 cfg.WANDB_PROJECT = "comparaison_pucerons_detection"

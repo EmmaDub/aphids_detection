@@ -184,4 +184,42 @@ print(f"[visibilite 20%] gardees = {m.tolist()}")
 assert m.tolist() == [True, True, False], m
 assert masque_visibilite(aires, apres, min_visibility=0.5).tolist() == [True, False, False]
 
+# --- 13. arret anticipe : patience, min_delta, direction ---
+from aphids_det.runners import arret_anticipe
+
+surv = arret_anticipe.Surveillant(patience=3, min_delta=0.001, nom="test")
+assert not surv.observer([0.10, 0.20, 0.30, 0.40])      # progression : pas d'arret
+assert (surv.meilleure_epoque, surv.vues) == (4, 4)
+# plateau : arret apres 3 epoques sans gain superieur a min_delta
+assert surv.observer([0.10, 0.20, 0.30, 0.40, 0.4005, 0.4002, 0.4001])
+assert surv.resume() == {"best_epoch": 4, "epochs_run": 7,
+                         "stopped_early": True, "meilleure": 0.40}
+print(f"[arret anticipe] {surv.resume()}")
+
+# un gain inferieur a min_delta ne remet pas le compteur a zero
+surv2 = arret_anticipe.Surveillant(patience=2, min_delta=0.01, nom="test2")
+assert surv2.observer([0.50, 0.505, 0.509])
+assert surv2.meilleure_epoque == 1
+
+# lecteurs de journaux : DETR (JSON par ligne) et YOLOX (sortie COCO)
+log = Path(cfg.WORK_ROOT) / "log.txt"
+log.write_text('{"epoch": 0, "test_coco_eval_bbox": [0.11, 0.2]}\n'
+               '{"epoch": 1, "test_coco_eval_bbox": [0.33, 0.4]}\n')
+assert arret_anticipe.lire_log_json(log) == [0.11, 0.33]
+ylog = Path(cfg.WORK_ROOT) / "train_log.txt"
+ylog.write_text(
+    " Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.123\n"
+    " Average Precision  (AP) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] = -1.000\n"
+    " Average Precision  (AP) @[ IoU=0.50:0.95 | area=   all | maxDets=100 ] = 0.456\n")
+assert arret_anticipe.lire_log_yolox(ylog) == [0.123, 0.456]
+print("[lecteurs de journaux] DETR et YOLOX : OK")
+
+# --- 14. tracabilite : stopped_early dans le CSV ---
+assert "stopped_early" in bench.result_columns()
+suivi = bench.base_row("TEST2", "yolox", 1, 10, 5, stopped_early=True, epochs_run=42)
+assert suivi["stopped_early"] is True and suivi["epochs_budget"] == cfg.MAX_EPOCHS
+assert bench.base_row("TEST3", "yolox", 2, 1, 1)["stopped_early"] is None
+print(f"[tracabilite] stopped_early present | plafond {cfg.MAX_EPOCHS} | "
+      f"patience {cfg.EARLY_STOP_PATIENCE} | min_delta {cfg.EARLY_STOP_MIN_DELTA}")
+
 print("\nTOUS LES TESTS PASSENT")

@@ -78,9 +78,20 @@ TILE_SIZE = 640             # toutes les tuiles font 640x640 (evite d'ouvrir cha
 # ============================================================================
 # 3. BUDGET D'ENTRAINEMENT (commun a tous les modeles)
 # ============================================================================
-EPOCHS = 30
+# Plafond d'epoques, volontairement genereux : ce n'est pas lui qui doit
+# arreter un modele, mais l'early stopping ci-dessous. Un `stopped_early=False`
+# dans le CSV signale au contraire que le plafond a ete atteint, donc qu'il est
+# trop bas pour ce modele.
+MAX_EPOCHS = 150
 IMGSZ = 640
-PATIENCE = 5                # early stopping natif (Ultralytics, RF-DETR) ; cf. README
+
+# Early stopping : MEME regle pour les sept modeles. Direction = maximiser la
+# metrique de validation native de chaque framework ; on arrete apres
+# EARLY_STOP_PATIENCE epoques sans amelioration superieure a EARLY_STOP_MIN_DELTA.
+# Natif chez Ultralytics et RF-DETR, ajoute par surveillance du journal chez
+# RT-DETR, D-FINE et YOLOX (cf. runners/arret_anticipe.py).
+EARLY_STOP_PATIENCE = 12
+EARLY_STOP_MIN_DELTA = 0.001   # en points de mAP50-95
 EFFECTIVE_BATCH = 32        # batch effectif vise pour tous les modeles
 
 # Batch physique par framework. RF-DETR compense par accumulation de gradient ;
@@ -191,8 +202,10 @@ def summary():
     print(f"Variante        : {SEARCH_VARIANT}")
     print(f"Classes         : {CLASS_NAMES}")
     print(f"CV              : folds {CV_FOLDS} (fold {TEST_FOLD} = test, non utilise)")
-    print(f"Budget          : {EPOCHS} epochs | imgsz {IMGSZ} | "
+    print(f"Budget          : plafond {MAX_EPOCHS} epochs | imgsz {IMGSZ} | "
           f"batch effectif {EFFECTIVE_BATCH} | neg_ratio {NEG_RATIO}")
+    print(f"Early stopping  : patience {EARLY_STOP_PATIENCE}, "
+          f"min_delta {EARLY_STOP_MIN_DELTA} (maximisation), meme regle partout")
     print(f"Evaluation      : COCO unifiee (conf {CONF_EVAL}, NMS IoU {NMS_IOU}, "
           f"maxDets {MAX_DET}) | P/R/F1 a conf {CONF_PR}, IoU {IOU_PR}")
     print(f"Travail local   : {WORK_ROOT}")
