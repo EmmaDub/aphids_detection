@@ -56,8 +56,8 @@ Les effets nommes par la reference, et ce que chaque depot en fait.
 - **YOLO26n / YOLO11n / YOLO12n** : hsv_s=0.2 (gain multiplicatif x[0.8,1.2])
 - **RF-DETR-N** : ColorJitter(saturation=0.2, p=1)
 - **RT-DETR-R18 / D-FINE-N** : ColorJitter(saturation=0.2)
-- **YOLOX-Nano** : augment_hsv(sgain=51)
-- **Ecart** : YOLOX applique un decalage ADDITIF (+/-51 sur 255) et non un gain multiplicatif, et tire l'application de chaque canal a 50%.
+- **YOLOX-Nano** : gain multiplicatif x[0.8,1.2], applique systematiquement (augment_hsv refait par le benchmark)
+- **Ecart** : Aucun depuis la reecriture : le decalage ADDITIF natif de YOLOX (+/-30 sur 255) et son tirage a pile ou face par canal, qui ne saturait qu'une image sur deux, ont ete remplaces.
 
 ### Luminosite / valeur
 
@@ -65,8 +65,8 @@ Les effets nommes par la reference, et ce que chaque depot en fait.
 - **YOLO26n / YOLO11n / YOLO12n** : hsv_v=0.2
 - **RF-DETR-N** : RandomBrightnessContrast(brightness_limit=0.2, p=1)
 - **RT-DETR-R18 / D-FINE-N** : ColorJitter(brightness=0.2)
-- **YOLOX-Nano** : augment_hsv(vgain=51)
-- **Ecart** : Meme remarque additif/multiplicatif pour YOLOX.
+- **YOLOX-Nano** : gain multiplicatif x[0.8,1.2], applique systematiquement
+- **Ecart** : Aucun depuis la reecriture de augment_hsv.
 
 ### Rotation
 
@@ -174,11 +174,11 @@ Ce que certains depots appliquent EN PLUS, sans qu'aucune cle du dict `AUG` en p
 ### Transforms albumentations d'Ultralytics
 
 - **Reference** : `absent`
-- **YOLO26n / YOLO11n / YOLO12n** : Blur, MedianBlur, ToGray et CLAHE, a p=0.01 chacun, appliques SI le paquet albumentations est importable
+- **YOLO26n / YOLO11n / YOLO12n** : Blur, MedianBlur, ToGray et CLAHE NEUTRALISES (p=0) par patch_ultralytics_albumentations ; sans ce patch ils s'appliquent a p=0.01 des qu'albumentations est importable
 - **RF-DETR-N** : aucun equivalent
 - **RT-DETR-R18 / D-FINE-N** : aucun equivalent
 - **YOLOX-Nano** : aucun equivalent
-- **Ecart** : Environ 4 % des tuiles recoivent un flou, un passage en niveaux de gris ou une egalisation d'histogramme -- chez les YOLO seulement. Le bloc est silencieux : il s'active selon la presence d'albumentations dans le runtime. augment.etat_albumentations() le signale et la colonne notes du CSV enregistre ce qui s'est reellement passe.
+- **Ecart** : Resolu. Sans le patch, environ 4 % des tuiles recevaient un flou, un passage en niveaux de gris ou une egalisation d'histogramme, chez les YOLO seulement -- et de facon silencieuse, puisque le bloc s'active selon la presence d'albumentations dans le runtime.
 
 ### Multi-echelle par lot
 
@@ -195,8 +195,8 @@ Ce que certains depots appliquent EN PLUS, sans qu'aucune cle du dict `AUG` en p
 - **YOLO26n / YOLO11n / YOLO12n** : close_mosaic=10 : mosaique coupee sur les 10 dernieres epoques
 - **RF-DETR-N** : aucun mecanisme de ce type
 - **RT-DETR-R18 / D-FINE-N** : politique stop_epoch : ColorJitter, ZoomOut et IoUCrop coupes a partir de l'epoque 20 sur 30
-- **YOLOX-Nano** : no_aug_epochs=10
-- **Ecart** : Aligne sur les 10 dernieres epoques partout, sauf RF-DETR qui n'offre pas ce reglage.
+- **YOLOX-Nano** : no_aug_epochs=15 (valeur native)
+- **Ecart** : Chaque depot garde son mecanisme natif : 10 dernieres epoques chez Ultralytics et les DETR, 15 chez YOLOX. RF-DETR n'offre aucun reglage de ce type.
 
 ### Plage des pixels et normalisation
 
@@ -267,8 +267,8 @@ figure.
 AUG_RFDETR = {
     'HorizontalFlip': {'p': 0.5},
     'VerticalFlip': {'p': 0.5},
-    'RandomBrightnessContrast': {'brightness_limit': 0.2, 'contrast_limit': 0.0, 'p': 1.0},
-    'ColorJitter': {'brightness': 0.0, 'contrast': 0.0, 'saturation': 0.2, 'hue': 0, 'p': 1.0},
+    'ColorJitter': {'brightness': 0.2, 'contrast': 0.0, 'saturation': 0.2, 'hue': 0, 'p': 1.0},
+    'Affine': {'scale': (0.75, 1.25), 'translate_percent': (-0.1, 0.1), 'rotate': (0, 0), 'shear': (0, 0), 'p': 1.0},
 }
 ```
 
@@ -286,8 +286,9 @@ AUG_YOLOX = {
     'translate': 0.1,
     'mosaic_scale': (0.75, 1.25),
     'shear': 0.0,
-    'hsv_gains': (0, 51, 51),
-    'no_aug_epochs': 10,
+    'perspective': 0.0,
+    'hsv_gain': 0.2,
+    'no_aug_epochs': 15,
 }
 ```
 

@@ -21,6 +21,7 @@ import json
 import random
 from pathlib import Path
 
+import cv2
 import numpy as np
 import torch.nn as nn
 
@@ -34,11 +35,30 @@ P = json.loads(Path(__file__).with_suffix(".json").read_text())
 # --------------------------------------------------------------------------
 import yolox.data as _yolox_data                                    # noqa: E402
 from yolox.data.data_augment import TrainTransform as _TrainTransform  # noqa: E402
-from yolox.data.data_augment import augment_hsv as _augment_hsv     # noqa: E402
+
+
+def augment_hsv_multiplicatif(image, gain=0.2):
+    """HSV de YOLOX refait en gain MULTIPLICATIF, comme la reference.
+
+    `yolox.data.data_augment.augment_hsv` applique un decalage ADDITIF, et sa
+    ligne `hsv_augs *= np.random.randint(0, 2, 3)` annule chaque canal a pile
+    ou face : la saturation n'etait donc appliquee qu'une image sur deux, avec
+    une loi differente des autres frameworks. On reprend ici la convention de
+    la reference : saturation et valeur multipliees par un facteur tire dans
+    [1 - gain, 1 + gain], teinte inchangee, applique systematiquement.
+
+    L'image est modifiee sur place, en BGR uint8, comme chez YOLOX.
+    """
+    gains = np.random.uniform(1 - gain, 1 + gain, 2)       # saturation, valeur
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[..., 1] = np.clip(hsv[..., 1] * gains[0], 0, 255)  # teinte laissee telle quelle
+    hsv[..., 2] = np.clip(hsv[..., 2] * gains[1], 0, 255)
+    cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR, dst=image)
+    return image
 
 
 class AphidsTrainTransform(_TrainTransform):
-    """TrainTransform de YOLOX + miroir vertical et gains HSV explicites."""
+    """TrainTransform de YOLOX + miroir vertical et HSV multiplicatif."""
 
     def __init__(self, *args, **kwargs):
         self._hsv_prob = kwargs.get("hsv_prob", 1.0)
@@ -55,8 +75,8 @@ class AphidsTrainTransform(_TrainTransform):
                 targets[:, 1] = h - y2                     # boites en xyxy
                 targets[:, 3] = h - y1
         if self._hsv_prob > 0 and random.random() < self._hsv_prob:
-            hg, sg, vg = P["hsv_gains"]
-            _augment_hsv(image, hgain=hg, sgain=sg, vgain=vg)
+            image = np.ascontiguousarray(image)
+            augment_hsv_multiplicatif(image, gain=P["hsv_gain"])
         return super().__call__(image, targets, input_dim)
 
 
@@ -126,6 +146,10 @@ class Exp(MyExp):
 
         # --- augmentation (reference du benchmark) ---
         self.mosaic_prob = P["mosaic_prob"]
+        self.perspective = P["perspective"]   # absent de YOLOX, pose pour memoire
+        # `scale` n'est lu nulle part dans YOLOX (c'est `mosaic_scale` qui
+        # alimente random_affine, cf. yolox_base.py L193) : pose pour memoire.
+        self.scale = tuple(P["mosaic_scale"])
         self.mixup_prob = P["mixup_prob"]
         self.enable_mixup = P["enable_mixup"]
         self.hsv_prob = P["hsv_prob"]

@@ -170,17 +170,23 @@ def write_config(variant, fold, ds, out_dir, batch, work):
         "return_masks": False,
         "transforms": {"type": "Compose", "ops": new_ops},
     }
-    # Politique "stop_epoch" : coupe les augmentations fortes sur les dernieres
-    # epoques, comme close_mosaic=10 cote Ultralytics.
+    # Politique "stop_epoch" : laissee a sa valeur NATIVE. Seuls les noms d'ops
+    # y sont mis a jour, puisque RandomPhotometricDistort a ete remplace.
+    # ATTENTION : la valeur native (117 sur 120 epoques chez RT-DETRv2-R18, 148
+    # sur 160 chez D-FINE-N) depasse le budget de 30 epoques du benchmark, donc
+    # la coupure ne se declenche jamais -- ces deux modeles gardent leurs
+    # augmentations jusqu'au bout, la ou YOLO coupe la mosaique sur les 10
+    # dernieres epoques et YOLOX sur les 15 dernieres. Ecart a documenter.
     policy = (train_dl.get("dataset", {}).get("transforms", {}) or {}).get("policy")
-    stop_epoch = max(1, cfg.EPOCHS - CLOSE_AUG_LAST_EPOCHS)
     if isinstance(policy, dict):
         pol = dict(policy)
-        pol["epoch"] = stop_epoch
         # une op renommee suit son nouveau nom ; une op retiree sort de la politique
         pol["ops"] = [renamed.get(o, o) for o in pol.get("ops", [])
                       if renamed.get(o, o) is not None]
         ds_cfg["transforms"]["policy"] = pol
+        print(f"  policy stop_epoch native : epoque {pol.get('epoch')} "
+              f"(budget {cfg.EPOCHS} epoques"
+              f"{' -- jamais atteinte' if (pol.get('epoch') or 0) >= cfg.EPOCHS else ''})")
 
     over = {
         "task": "detection",
@@ -202,7 +208,10 @@ def write_config(variant, fold, ds, out_dir, batch, work):
         },
     }
     if isinstance(train_dl.get("collate_fn"), dict):
-        over["train_dataloader"]["collate_fn"] = {"stop_epoch": stop_epoch}
+        # collate_fn laisse natif lui aussi : son stop_epoch ne pilote que le
+        # multi-echelle par lot, deja neutralise par les configs retenues
+        # (scales: ~ chez RT-DETRv2-R18, base_size_repeat: ~ chez D-FINE-N).
+        pass
     if variant == "rtdetr_v1":
         over["checkpoint_step"] = 1                # v1 ne sauvegarde pas de best.pth
 

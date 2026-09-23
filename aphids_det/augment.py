@@ -41,11 +41,23 @@ AUG = {
 AUG_RFDETR = {
     "HorizontalFlip": {"p": AUG["fliplr"]},
     "VerticalFlip": {"p": AUG["flipud"]},
-    "RandomBrightnessContrast": {"brightness_limit": AUG["hsv_v"],
-                                 "contrast_limit": 0.0, "p": 1.0},
-    "ColorJitter": {"brightness": 0.0, "contrast": 0.0,
+    # Remplace le RandomPhotometricDistort natif : retire d'un coup la teinte
+    # et la permutation de canaux, absentes de la reference.
+    "ColorJitter": {"brightness": AUG["hsv_v"], "contrast": 0.0,
                     "saturation": AUG["hsv_s"], "hue": AUG["hsv_h"], "p": 1.0},
+    # Seule source d'echelle et de translation, bornee sur la reference : les
+    # couches natives (scale_jitter, multi_scale) sont coupees a l'appel de
+    # train() dans runners/rfdetr_runner.py.
+    "Affine": {"scale": (1 - AUG["scale"], 1 + AUG["scale"]),
+               "translate_percent": (-AUG["translate"], AUG["translate"]),
+               "rotate": (AUG["degrees"], AUG["degrees"]),
+               "shear": (AUG["shear"], AUG["shear"]), "p": 1.0},
 }
+
+# Couches d'echelle natives de RF-DETR, coupees pour que l'Affine ci-dessus
+# soit le seul mecanisme d'echelle (cf. docs/AUGMENTATION.md).
+RFDETR_COUPURES = {"scale_jitter": False, "multi_scale": False,
+                   "expanded_scales": False}
 
 # ============================================================================
 # RT-DETR / D-FINE : ops inserees dans la liste de transforms du depot
@@ -88,12 +100,12 @@ AUG_YOLOX = {
     "translate": AUG["translate"],
     "mosaic_scale": (1 - AUG["scale"], 1 + AUG["scale"]),
     "shear": float(AUG["shear"]),
-    # Gains HSV additifs de YOLOX, regles pour approcher hsv_s / hsv_v = 0.2
-    # (0.2 x 255 ~ 51). hgain = 0 car hsv_h = 0.
-    "hsv_gains": (0, int(round(AUG["hsv_s"] * 255)), int(round(AUG["hsv_v"] * 255))),
-    # Equivalent de close_mosaic=10 d'Ultralytics : mosaique coupee sur les
-    # 10 dernieres epoques.
-    "no_aug_epochs": 10,
+    "perspective": float(AUG["perspective"]),
+    # Gain HSV MULTIPLICATIF x[0.8, 1.2], comme la reference : le decalage
+    # additif natif de YOLOX est remplace dans assets/yolox_exp_aphids.py.
+    "hsv_gain": AUG["hsv_s"],
+    # Analogue natif de close_mosaic, laisse a sa valeur YOLOX.
+    "no_aug_epochs": 15,
 }
 
 # ============================================================================
@@ -110,15 +122,17 @@ _TABLE = [
          ultralytics="hsv_s=0.2 (gain multiplicatif x[0.8,1.2])",
          rfdetr="ColorJitter(saturation=0.2, p=1)",
          detr="ColorJitter(saturation=0.2)",
-         yolox="augment_hsv(sgain=51)",
-         ecart="YOLOX applique un decalage ADDITIF (+/-51 sur 255) et non un gain "
-               "multiplicatif, et tire l'application de chaque canal a 50%."),
+         yolox="gain multiplicatif x[0.8,1.2], applique systematiquement "
+               "(augment_hsv refait par le benchmark)",
+         ecart="Aucun depuis la reecriture : le decalage ADDITIF natif de YOLOX "
+               "(+/-30 sur 255) et son tirage a pile ou face par canal, qui ne "
+               "saturait qu'une image sur deux, ont ete remplaces."),
     dict(effet="Luminosite / valeur", reference="hsv_v = 0.2",
          ultralytics="hsv_v=0.2",
          rfdetr="RandomBrightnessContrast(brightness_limit=0.2, p=1)",
          detr="ColorJitter(brightness=0.2)",
-         yolox="augment_hsv(vgain=51)",
-         ecart="Meme remarque additif/multiplicatif pour YOLOX."),
+         yolox="gain multiplicatif x[0.8,1.2], applique systematiquement",
+         ecart="Aucun depuis la reecriture de augment_hsv."),
     dict(effet="Rotation", reference="degrees = 0",
          ultralytics="degrees=0", rfdetr="aucune rotation",
          detr="aucune rotation", yolox="degrees=0.0",
@@ -200,16 +214,16 @@ _TABLE = [
     # ------------------------------------------------------------------
     dict(effet="Transforms albumentations d'Ultralytics", hors_reference=True,
          reference="absent",
-         ultralytics="Blur, MedianBlur, ToGray et CLAHE, a p=0.01 chacun, "
-                     "appliques SI le paquet albumentations est importable",
+         ultralytics="Blur, MedianBlur, ToGray et CLAHE NEUTRALISES (p=0) par "
+                     "patch_ultralytics_albumentations ; sans ce patch ils "
+                     "s'appliquent a p=0.01 des qu'albumentations est importable",
          rfdetr="aucun equivalent", detr="aucun equivalent",
          yolox="aucun equivalent",
-         ecart="Environ 4 % des tuiles recoivent un flou, un passage en niveaux "
-               "de gris ou une egalisation d'histogramme -- chez les YOLO "
-               "seulement. Le bloc est silencieux : il s'active selon la "
-               "presence d'albumentations dans le runtime. "
-               "augment.etat_albumentations() le signale et la colonne notes du "
-               "CSV enregistre ce qui s'est reellement passe."),
+         ecart="Resolu. Sans le patch, environ 4 % des tuiles recevaient un "
+               "flou, un passage en niveaux de gris ou une egalisation "
+               "d'histogramme, chez les YOLO seulement -- et de facon "
+               "silencieuse, puisque le bloc s'active selon la presence "
+               "d'albumentations dans le runtime."),
     dict(effet="Multi-echelle par lot", hors_reference=True,
          reference="absent : imgsz fixe a 640",
          ultralytics="multi_scale = False par defaut en detection",
@@ -229,9 +243,10 @@ _TABLE = [
          rfdetr="aucun mecanisme de ce type",
          detr="politique stop_epoch : ColorJitter, ZoomOut et IoUCrop coupes a "
               "partir de l'epoque 20 sur 30",
-         yolox="no_aug_epochs=10",
-         ecart="Aligne sur les 10 dernieres epoques partout, sauf RF-DETR qui "
-               "n'offre pas ce reglage."),
+         yolox="no_aug_epochs=15 (valeur native)",
+         ecart="Chaque depot garde son mecanisme natif : 10 dernieres epoques "
+               "chez Ultralytics et les DETR, 15 chez YOLOX. RF-DETR n'offre "
+               "aucun reglage de ce type."),
     dict(effet="Plage des pixels et normalisation", hors_reference=True,
          reference="non specifie (pretraitement, pas augmentation)",
          ultralytics="0-1, RGB",
@@ -344,6 +359,34 @@ def patch_ultralytics_visibility(min_visibility=None):
     print(f"  Ultralytics : visibilite minimale des boites portee a {seuil:.0%} "
           f"(defaut du framework : 10%)")
     return seuil
+
+
+def patch_ultralytics_albumentations():
+    """Neutralise le bloc albumentations cache d'Ultralytics.
+
+    `ultralytics.data.augment.Albumentations` ajoute Blur, MedianBlur, ToGray et
+    CLAHE (p = 0.01 chacun) des que le paquet albumentations est importable, et
+    ne fait rien sinon : le resultat d'un entrainement depend donc du contenu du
+    runtime, en silence. On force la transform a None, ce que `__call__` traite
+    deja comme "ne rien faire". Idempotent.
+    """
+    from ultralytics.data.augment import Albumentations
+
+    if getattr(Albumentations.__init__, "_aphids_neutralise", False):
+        return True
+    origine = Albumentations.__init__
+
+    def __init__(self, *args, **kwargs):
+        origine(self, *args, **kwargs)
+        self.transform = None            # __call__ renvoie alors les labels tels quels
+        self.contains_spatial = False
+
+    __init__._aphids_neutralise = True
+    __init__._aphids_origine = origine
+    Albumentations.__init__ = __init__
+    print("  Ultralytics : bloc albumentations cache neutralise "
+          "(Blur, MedianBlur, ToGray, CLAHE a p=0)")
+    return True
 
 
 def patch_rfdetr_visibility(min_visibility=None):

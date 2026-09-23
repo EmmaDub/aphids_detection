@@ -11,7 +11,7 @@ import shutil
 import time
 from pathlib import Path
 
-from .. import bench, cocoify, config as cfg, evaluate
+from .. import augment, bench, cocoify, config as cfg, evaluate
 from ..augment import AUG_RFDETR, patch_rfdetr_visibility
 from ..folds import fold_val_paths
 
@@ -78,32 +78,35 @@ def run_fold(fold):
                   early_stopping=True, early_stopping_patience=cfg.PATIENCE,
                   early_stopping_min_delta=0.001, early_stopping_use_ema=True,
                   aug_config=AUG_RFDETR)
-    # RF-DETR s'entraine en multi-echelle par defaut (multi_scale et
-    # expanded_scales a True) : aucun autre modele du benchmark ne le fait, et
-    # la reference fixe imgsz a 640. On les desactive, en repliant proprement
-    # si la version installee ne connait pas ces arguments.
-    multi_echelle = dict(multi_scale=False, expanded_scales=False)
+    # Couches d'echelle natives de RF-DETR (scale_jitter : branche recadrage du
+    # OneOf ; multi_scale et expanded_scales : resolution variable d'un lot a
+    # l'autre). On les coupe pour que l'Affine bornee d'AUG_RFDETR soit la seule
+    # source d'echelle, et on replie argument par argument si la version
+    # installee n'en connait pas un.
+    extras = dict(augment.RFDETR_COUPURES)
+    if cfg.USE_WANDB:
+        extras["wandb"] = True
 
     run = bench.wandb_run(MODELE, fold, {"batch": batch, "grad_accum": accum})
     t0 = time.time()
-    for essai in (dict(**kwargs, **multi_echelle, wandb=cfg.USE_WANDB),
-                  dict(**kwargs, **multi_echelle),
-                  dict(**kwargs, wandb=cfg.USE_WANDB),
-                  dict(**kwargs)):
+    while True:
         try:
-            model.train(**essai)
-            multi_desactivee = "multi_scale" in essai
+            model.train(**kwargs, **extras)
             break
-        except TypeError as e:                   # argument refuse par la version
-            if not any(k in str(e) for k in ("multi_scale", "expanded_scales",
-                                             "wandb")):
+        except TypeError as e:
+            refuse = next((k for k in list(extras) if k in str(e)), None)
+            if refuse is None:
                 raise                            # erreur sans rapport : on arrete
-            print(f"  RF-DETR : {e} -- nouvelle tentative sans cet argument")
-    else:
-        raise RuntimeError("model.train a refuse toutes les combinaisons testees")
-    if not multi_desactivee:
-        print("  RF-DETR : ATTENTION, multi_scale n'a pas pu etre desactive -- "
-              "l'entrainement voit plusieurs resolutions, contrairement aux autres")
+            extras.pop(refuse)
+            print(f"  RF-DETR : argument '{refuse}' refuse par cette version "
+                  f"({e}) -- nouvelle tentative sans lui")
+    coupees = [k for k in augment.RFDETR_COUPURES if k in extras]
+    manquantes = [k for k in augment.RFDETR_COUPURES if k not in extras]
+    print(f"  RF-DETR : couches d'echelle coupees -> {', '.join(coupees) or 'aucune'}")
+    if manquantes:
+        print(f"  RF-DETR : ATTENTION, {', '.join(manquantes)} n'a pas pu etre "
+              f"desactive : ce modele voit une variation d'echelle que les autres "
+              f"n'ont pas")
     train_time = round(time.time() - t0, 1)
 
     # Poids retenus par RF-DETR (EMA si disponible)
@@ -129,8 +132,8 @@ def run_fold(fold):
                          notes=f"early stopping natif (patience {cfg.PATIENCE}) ; "
                                f"visibilite min "
                                f"{'non applicable' if seuil is None else f'{seuil:.0%}'} ; "
-                               f"multi-echelle "
-                               f"{'desactivee' if multi_desactivee else 'ACTIVE'}",
+                               f"couches d'echelle coupees : "
+                               f"{', '.join(coupees) or 'aucune'}",
                          **stats, **metrics)
     bench.wandb_finish(run, metrics)
     return row

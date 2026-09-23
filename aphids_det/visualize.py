@@ -34,7 +34,8 @@ import numpy as np
 
 from . import config as cfg, external
 from .augment import (AUG, AUG_RFDETR, AUG_YOLOX, MODELES,
-                      masque_visibilite, patch_ultralytics_visibility)
+                      masque_visibilite, patch_ultralytics_albumentations,
+                      patch_ultralytics_visibility)
 from .folds import fold_train_paths, has_annotations, label_of
 
 Tile = namedtuple("Tile", "path boxes classes")
@@ -143,6 +144,7 @@ def aug_ultralytics(tile, n_aug, pool, seed=0):
     from ultralytics.utils import DEFAULT_CFG
 
     patch_ultralytics_visibility()      # meme seuil qu'a l'entrainement
+    patch_ultralytics_albumentations()  # bloc cache neutralise, comme a l'entrainement
     # AUG est passe tel quel, en ignorant les cles que la version installee
     # ne connait pas (cutmix et bgr sont recents).
     over = {k: v for k, v in AUG.items() if hasattr(DEFAULT_CFG, k)}
@@ -487,6 +489,55 @@ def compare(fold=0, n_aug=4, seed=0, pipelines=None, tile=None, pool=None,
     return fig
 
 
+def dump_augmentations(pipeline, n=18, fold=0, seed=0, colonnes=6, save=True,
+                       figsize_scale=2.2):
+    """Grille de `n` tirages augmentes d'UN pipeline, boites dessinees.
+
+    Verification n.1 exigee apres chaque modification de modele : on regarde ce
+    que le modele va reellement voir, sur des tuiles reelles du jeu de donnees.
+    `pipeline` est un libelle de `PIPELINES` (cf. augment.MODELES).
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    fonction = PIPELINES[pipeline]
+    tuiles, vivier = sample_tiles(fold=fold, n=1, seed=seed, min_boxes=1)
+    tile = tuiles[0]
+    echantillons, note = fonction(tile, n, vivier, seed=seed)
+
+    lignes = (n + colonnes - 1) // colonnes
+    fig, axes = plt.subplots(lignes, colonnes, squeeze=False,
+                             figsize=(figsize_scale * colonnes,
+                                      figsize_scale * lignes + 1.0))
+    fig.patch.set_facecolor(SURFACE)
+    for k in range(lignes * colonnes):
+        ax = axes[k // colonnes][k % colonnes]
+        if k < len(echantillons):
+            _draw(ax, *echantillons[k][:3])
+            ax.set_title(f"tirage {k + 1}", fontsize=7.5, color=INK_SECONDARY)
+        else:
+            ax.set_facecolor(SURFACE)
+            _frame(ax)
+
+    noms = [cfg.CLASS_NAMES[i] for i in sorted(cfg.CLASS_NAMES)]
+    fig.legend(handles=[Line2D([0], [0], color=CLASS_COLORS[i], lw=2.2, label=nm)
+                        for i, nm in enumerate(noms)],
+               loc="lower center", ncol=len(noms), frameon=False, fontsize=9,
+               labelcolor=INK_SECONDARY, bbox_to_anchor=(0.5, 0.005))
+    fig.suptitle(f"{pipeline} - {n} tirages sur {tile.path.name} ({note})",
+                 fontsize=10.5, color=INK_PRIMARY, y=0.998)
+    fig.tight_layout(rect=(0.0, 0.04, 1.0, 0.98))
+
+    if save:
+        slug = "".join(c if c.isalnum() else "_" for c in pipeline).strip("_")
+        out = Path(save) if isinstance(save, (str, Path)) else \
+            Path(cfg.OUT_DIR) / f"verif_augmentation_{slug}_fold{fold}.png"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(out, dpi=170, facecolor=SURFACE, bbox_inches="tight")
+        print(f"  dump visuel ({n} tirages) -> {out}")
+    return fig
+
+
 # ========================================================================
 # Comparaison effet par effet, a valeur extreme (sans aleatoire)
 # ========================================================================
@@ -603,6 +654,7 @@ def _ultralytics_dataset(tile, pool, over):
         return _DS_CACHE[cle]
 
     patch_ultralytics_visibility()
+    patch_ultralytics_albumentations()
     zero = {k: (0.0 if isinstance(getattr(DEFAULT_CFG, k), (int, float)) else
                 getattr(DEFAULT_CFG, k))
             for k in AUG if hasattr(DEFAULT_CFG, k)}
