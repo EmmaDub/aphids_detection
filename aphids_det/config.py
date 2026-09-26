@@ -78,20 +78,18 @@ TILE_SIZE = 640             # toutes les tuiles font 640x640 (evite d'ouvrir cha
 # ============================================================================
 # 3. BUDGET D'ENTRAINEMENT (commun a tous les modeles)
 # ============================================================================
-# Plafond d'epoques, volontairement genereux : ce n'est pas lui qui doit
-# arreter un modele, mais l'early stopping ci-dessous. Un `stopped_early=False`
-# dans le CSV signale au contraire que le plafond a ete atteint, donc qu'il est
-# trop bas pour ce modele.
-MAX_EPOCHS = 150
+# Budget commun : les sept modeles font exactement ce nombre d'epoques, sans
+# arret anticipe. Chaque framework designe ensuite son meilleur checkpoint sur
+# SA metrique de validation native (fitness pour Ultralytics, AP50-95 COCO pour
+# les autres), et c'est ce checkpoint que l'evaluateur COCO unifie note.
+MAX_EPOCHS = 50
 IMGSZ = 640
 
-# Early stopping : MEME regle pour les sept modeles. Direction = maximiser la
-# metrique de validation native de chaque framework ; on arrete apres
-# EARLY_STOP_PATIENCE epoques sans amelioration superieure a EARLY_STOP_MIN_DELTA.
-# Natif chez Ultralytics et RF-DETR, ajoute par surveillance du journal chez
-# RT-DETR, D-FINE et YOLOX (cf. runners/arret_anticipe.py).
-EARLY_STOP_PATIENCE = 12
-EARLY_STOP_MIN_DELTA = 0.001   # en points de mAP50-95
+# Early stopping desactive : le budget est fixe et identique pour tous. La
+# classe runners/arret_anticipe.Surveillant reste disponible pour un usage
+# futur, mais aucun runner ne s'en sert.
+EARLY_STOP_PATIENCE = None
+EARLY_STOP_MIN_DELTA = None
 EFFECTIVE_BATCH = 32        # batch effectif vise pour tous les modeles
 
 # Batch physique par framework. RF-DETR compense par accumulation de gradient ;
@@ -202,10 +200,9 @@ def summary():
     print(f"Variante        : {SEARCH_VARIANT}")
     print(f"Classes         : {CLASS_NAMES}")
     print(f"CV              : folds {CV_FOLDS} (fold {TEST_FOLD} = test, non utilise)")
-    print(f"Budget          : plafond {MAX_EPOCHS} epochs | imgsz {IMGSZ} | "
+    print(f"Budget          : {MAX_EPOCHS} epochs fixes, selection = meilleur "
+          f"checkpoint (metrique native) | imgsz {IMGSZ} | "
           f"batch effectif {EFFECTIVE_BATCH} | neg_ratio {NEG_RATIO}")
-    print(f"Early stopping  : patience {EARLY_STOP_PATIENCE}, "
-          f"min_delta {EARLY_STOP_MIN_DELTA} (maximisation), meme regle partout")
     print(f"Evaluation      : COCO unifiee (conf {CONF_EVAL}, NMS IoU {NMS_IOU}, "
           f"maxDets {MAX_DET}) | P/R/F1 a conf {CONF_PR}, IoU {IOU_PR}")
     print(f"Travail local   : {WORK_ROOT}")

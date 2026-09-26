@@ -45,8 +45,9 @@ def run(cmd, cwd=None, env=None, check=True, echo=True, surveillance=None):
     """Lance une commande en streamant sa sortie. Renvoie (code, sortie).
 
     `surveillance` (cf. runners/arret_anticipe.SurveillanceJournal) peut mettre
-    fin au processus en cours de route : un arret anticipe n'est alors PAS une
-    erreur, meme si le code de retour est non nul.
+    fin au processus en cours de route ; l'arret n'est alors PAS une erreur,
+    meme si le code de retour est non nul. Aucun runner ne s'en sert depuis le
+    passage au budget fixe : le parametre reste pour un usage futur.
     """
     if isinstance(cmd, str):
         cmd = cmd.split()
@@ -83,8 +84,8 @@ def run_with_oom_retry(build_cmd, batch, cwd=None, retries=None, min_batch=1,
                        surveillance=None):
     """Lance `build_cmd(batch)` et divise le batch par 2 en cas d'OOM CUDA.
 
-    `surveillance` est transmise a `run` : elle peut arreter l'entrainement des
-    que l'early stopping se declenche.
+    `surveillance` est transmise a `run` (inutilisee depuis le passage au
+    budget fixe, cf. la docstring de `run`).
 
     Renvoie (sortie, batch reellement utilise).
     """

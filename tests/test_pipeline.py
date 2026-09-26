@@ -184,7 +184,8 @@ print(f"[visibilite 20%] gardees = {m.tolist()}")
 assert m.tolist() == [True, True, False], m
 assert masque_visibilite(aires, apres, min_visibility=0.5).tolist() == [True, False, False]
 
-# --- 13. arret anticipe : patience, min_delta, direction ---
+# --- 13. Surveillant : conserve pour un usage futur, plus utilise par les
+#         runners depuis le passage au budget fixe, mais toujours teste ---
 from aphids_det.runners import arret_anticipe
 
 surv = arret_anticipe.Surveillant(patience=3, min_delta=0.001, nom="test")
@@ -233,8 +234,10 @@ print(f"[lecteurs de journaux] DETR : OK | YOLOX : {len(lues)} valeurs pour "
 assert "stopped_early" in bench.result_columns()
 suivi = bench.base_row("TEST2", "yolox", 1, 10, 5, stopped_early=True, epochs_run=42)
 assert suivi["stopped_early"] is True and suivi["epochs_budget"] == cfg.MAX_EPOCHS
-assert bench.base_row("TEST3", "yolox", 2, 1, 1)["stopped_early"] is None
-print(f"[tracabilite] stopped_early present | plafond {cfg.MAX_EPOCHS} | "
-      f"patience {cfg.EARLY_STOP_PATIENCE} | min_delta {cfg.EARLY_STOP_MIN_DELTA}")
+# budget fixe : stopped_early vaut False par defaut, la colonne restant dans le
+# CSV pour la compatibilite avec les campagnes precedentes
+assert bench.base_row("TEST3", "yolox", 2, 1, 1)["stopped_early"] is False
+assert cfg.EARLY_STOP_PATIENCE is None and cfg.EARLY_STOP_MIN_DELTA is None
+print(f"[tracabilite] budget fixe {cfg.MAX_EPOCHS} epochs, sans arret anticipe")
 
 print("\nTOUS LES TESTS PASSENT")

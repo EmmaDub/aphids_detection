@@ -109,9 +109,10 @@ AUG_YOLOX = {
     # Gain HSV MULTIPLICATIF x[0.8, 1.2], comme la reference : le decalage
     # additif natif de YOLOX est remplace dans assets/yolox_exp_aphids.py.
     "hsv_gain": AUG["hsv_s"],
-    # Coupure d'augmentation de fin SUPPRIMEE : avec un early stopping, la fin
-    # d'entrainement varie d'un modele a l'autre, une coupure a epoque fixe
-    # s'appliquerait donc de facon incoherente. L'augmentation reste constante.
+    # Coupure d'augmentation de fin SUPPRIMEE : no_aug_epochs n'a d'equivalent
+    # que chez Ultralytics (close_mosaic). La garder donnerait a deux frameworks
+    # sur quatre une phase finale sans mosaique. L'augmentation reste donc
+    # constante sur tout le budget, pour les sept modeles.
     "no_aug_epochs": 0,
 }
 
@@ -251,13 +252,13 @@ _TABLE = [
          rfdetr="aucun mecanisme de ce type, donc rien a desactiver",
          detr="politique stop_epoch repoussee au-dela du plafond, donc inerte",
          yolox="no_aug_epochs=0 (defaut 15 : desactive)",
-         ecart="RESIDU ASSUME. Avec un early stopping, la fin d'entrainement "
-               "varie d'un modele a l'autre et d'un fold a l'autre : une coupure "
-               "a epoque fixe s'appliquerait de facon incoherente. Aucun modele "
-               "n'a donc de queue d'entrainement propre, et YOLO comme YOLOX "
-               "perdent le petit gain que leur donnaient close_mosaic et "
-               "no_aug_epochs. L'augmentation reste constante sur toute la duree "
-               "de chaque run, pour tous."),
+         ecart="RESIDU ASSUME. close_mosaic et no_aug_epochs n'existent que "
+               "chez deux frameworks sur quatre : les garder aurait donne a YOLO "
+               "et YOLOX une phase finale sans mosaique que ni RF-DETR ni les "
+               "DETR ne peuvent avoir. Ils sont donc desactives, et les sept "
+               "modeles voient la meme augmentation sur tout le budget. YOLO et "
+               "YOLOX y perdent le petit gain que leur donnait cette queue "
+               "d'entrainement."),
     dict(effet="Plage des pixels et normalisation", hors_reference=True,
          reference="non specifie (pretraitement, pas augmentation)",
          ultralytics="0-1, RGB",

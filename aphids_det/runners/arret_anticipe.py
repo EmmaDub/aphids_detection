@@ -1,21 +1,22 @@
 # -*- coding: utf-8 -*-
-"""Early stopping pour les depots qui n'en ont pas : RT-DETR, D-FINE, YOLOX.
+"""Lecture des journaux d'entrainement, et early stopping (hors service).
 
-Ultralytics et RF-DETR arretent d'eux-memes. Les trois autres consomment tout
-leur plafond d'epoques. Comme ils s'entrainent dans un sous-processus, on ne
-peut pas y brancher un callback Python : on surveille donc le journal que le
-framework ecrit deja, epoque par epoque, et on met fin au processus quand la
-patience est epuisee.
+LES LECTEURS SONT EN SERVICE. `lire_log_json` (RT-DETR, D-FINE),
+`lire_metrics_csv` (RF-DETR) et `lire_log_yolox` (YOLOX) extraient la metrique
+de validation native de chaque framework, epoque par epoque. Les runners s'en
+servent pour renseigner `best_epoch` et `epochs_run`, et `detr_repo` pour
+departager `best_stg1.pth` et `best_stg2.pth`.
 
-La metrique lue est la metrique de validation NATIVE du framework (mAP50-95 de
-sa propre evaluation COCO), jamais l'evaluateur unifie d'aphids_det.evaluate :
-le relancer a chaque epoque couterait bien plus cher que l'entrainement. La
-comparaison finale entre modeles, elle, reste faite par l'evaluateur unifie.
+L'EARLY STOPPING N'EST PLUS UTILISE. Le benchmark donne desormais le meme
+budget fixe (`cfg.MAX_EPOCHS`) aux sept modeles, chacun designant ensuite son
+meilleur checkpoint sur sa metrique native. `Surveillant` et
+`SurveillanceJournal` restent ici, fonctionnels et testes, pour un usage futur :
+aucun runner ne les instancie.
 
-Les poids de la meilleure epoque ne sont pas geres ici : chaque depot sauvegarde
-deja son meilleur checkpoint (`best.pth`, `best_stg2.pth`, `best_ckpt.pth`), et
-`detr_repo.best_checkpoint` / `yolox_runner` les retrouvent. Arreter le
-processus apres la meilleure epoque laisse donc ces fichiers en place.
+La metrique lue est toujours la metrique NATIVE du framework, jamais
+l'evaluateur unifie d'aphids_det.evaluate, qui coute bien trop cher pour etre
+relance a chaque epoque. La comparaison finale entre modeles, elle, reste faite
+par cet evaluateur unifie.
 """
 
 import json

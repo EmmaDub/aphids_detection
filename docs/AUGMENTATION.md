@@ -196,7 +196,7 @@ Ce que certains depots appliquent EN PLUS, sans qu'aucune cle du dict `AUG` en p
 - **RF-DETR-N** : aucun mecanisme de ce type, donc rien a desactiver
 - **RT-DETR-R18 / D-FINE-N** : politique stop_epoch repoussee au-dela du plafond, donc inerte
 - **YOLOX-Nano** : no_aug_epochs=0 (defaut 15 : desactive)
-- **Ecart** : RESIDU ASSUME. Avec un early stopping, la fin d'entrainement varie d'un modele a l'autre et d'un fold a l'autre : une coupure a epoque fixe s'appliquerait de facon incoherente. Aucun modele n'a donc de queue d'entrainement propre, et YOLO comme YOLOX perdent le petit gain que leur donnaient close_mosaic et no_aug_epochs. L'augmentation reste constante sur toute la duree de chaque run, pour tous.
+- **Ecart** : RESIDU ASSUME. close_mosaic et no_aug_epochs n'existent que chez deux frameworks sur quatre : les garder aurait donne a YOLO et YOLOX une phase finale sans mosaique que ni RF-DETR ni les DETR ne peuvent avoir. Ils sont donc desactives, et les sept modeles voient la meme augmentation sur tout le budget. YOLO et YOLOX y perdent le petit gain que leur donnait cette queue d'entrainement.
 
 ### Plage des pixels et normalisation
 

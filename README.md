@@ -65,6 +65,13 @@ puis lance sa validation croisee. **La reprise est automatique** : un couple
 (modele, fold) deja present dans le CSV est saute, et une erreur sur un fold
 n'interrompt pas les suivants.
 
+**Repartir d'un CSV vide.** Cette reprise se fonde sur les lignes deja
+presentes dans `benchmark_detection_cv.csv` : les lignes produites avant le
+passage au budget fixe de 50 epoques viennent d'un autre protocole et ne sont
+pas comparables aux nouvelles. Avant une campagne, renommer ce fichier (par
+exemple en `benchmark_detection_cv_ancien.csv`) ou le supprimer. Rien dans le
+code ne fusionne les deux.
+
 **Depot prive et Colab.** Ce depot etant prive, `git clone` en HTTPS echoue dans
 Colab avec `could not read Username for 'https://github.com'` : git demande un
 identifiant, et un notebook n'a pas d'entree interactive. Deux facons de s'en
@@ -207,10 +214,10 @@ plus `batch`, `grad_accum`, `best_epoch`, `epochs_run` et `repo_commit`.
   20 % dont le centre sort du recadrage est supprimee, la ou les autres
   modeles la garderaient. Ces deux modeles sont donc plus severes, jamais plus
   laxistes.
-- **Early stopping.** Natif chez Ultralytics et RF-DETR (patience 5). RT-DETR,
-  D-FINE et YOLOX n'en ont pas : ils consomment les 30 epoques, et le benchmark
-  retient l'epoque de meilleur mAP de validation. La selection du modele est
-  donc la meme partout, le cout en calcul non.
+- **Budget d'entrainement.** Les sept modeles font **50 epoques fixes**, sans
+  arret anticipe ; chacun designe ensuite son meilleur checkpoint sur sa
+  metrique de validation native (fitness pour Ultralytics, AP50-95 COCO pour les
+  autres), et c'est ce checkpoint que l'evaluateur COCO unifie note.
 - **Batch effectif.** 32 pour tout le monde. RF-DETR y arrive par accumulation
   (8 x 4) ; RT-DETR, D-FINE et YOLOX n'ont pas d'accumulation, leur batch
   physique est donc leur batch effectif. En cas d'OOM CUDA, le batch est divise

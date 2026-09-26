@@ -18,37 +18,30 @@ from . import augment, config as cfg
 HP_DEFAULTS = [
     dict(modele="YOLO26n", framework="ultralytics", poids_init="yolo26n.pt (COCO)",
          optimiseur="auto (Ultralytics)", lr="defaut Ultralytics",
-         selection="best.pt (mAP50-95 val)", early_stopping=f"natif, patience {cfg.EARLY_STOP_PATIENCE}"),
+         selection="best.pt, fitness Ultralytics (0.9 mAP50-95 + 0.1 mAP50)", early_stopping=f"aucun (budget fixe {cfg.MAX_EPOCHS} epochs)"),
     dict(modele="YOLO11n", framework="ultralytics", poids_init="yolo11n.pt (COCO)",
          optimiseur="auto (Ultralytics)", lr="defaut Ultralytics",
-         selection="best.pt (mAP50-95 val)", early_stopping=f"natif, patience {cfg.EARLY_STOP_PATIENCE}"),
+         selection="best.pt, fitness Ultralytics (0.9 mAP50-95 + 0.1 mAP50)", early_stopping=f"aucun (budget fixe {cfg.MAX_EPOCHS} epochs)"),
     dict(modele="YOLO12n", framework="ultralytics", poids_init="yolo12n.pt (COCO)",
          optimiseur="auto (Ultralytics)", lr="defaut Ultralytics",
-         selection="best.pt (mAP50-95 val)", early_stopping=f"natif, patience {cfg.EARLY_STOP_PATIENCE}"),
+         selection="best.pt, fitness Ultralytics (0.9 mAP50-95 + 0.1 mAP50)", early_stopping=f"aucun (budget fixe {cfg.MAX_EPOCHS} epochs)"),
     dict(modele="RF-DETR-N", framework="rfdetr", poids_init="RFDETRNano (pre-entraine)",
          optimiseur="AdamW (defaut RF-DETR)", lr="defaut RF-DETR",
-         selection="checkpoint EMA du meilleur mAP",
-         early_stopping=f"natif, patience {cfg.EARLY_STOP_PATIENCE}, "
-                       f"min_delta {cfg.EARLY_STOP_MIN_DELTA}"),
+         selection="checkpoint_best_ema.pth (meilleur AP50-95 COCO natif, EMA)",
+         early_stopping=f"aucun (budget fixe {cfg.MAX_EPOCHS} epochs)"),
     dict(modele="RT-DETR-R18", framework="rtdetr",
          poids_init="rtdetrv2_r18vd_120e_coco.pth (COCO)",
          optimiseur="AdamW (defaut depot)", lr="defaut depot",
-         selection="best.pth (meilleur mAP val)",
-         early_stopping=f"ajoute par surveillance du journal, patience "
-                       f"{cfg.EARLY_STOP_PATIENCE}, min_delta "
-                       f"{cfg.EARLY_STOP_MIN_DELTA}"),
+         selection="best.pth (meilleur AP50-95 COCO natif)",
+         early_stopping=f"aucun (budget fixe {cfg.MAX_EPOCHS} epochs)"),
     dict(modele="D-FINE-N", framework="dfine", poids_init="dfine_n_coco.pth (COCO)",
          optimiseur="AdamW (defaut depot)", lr="defaut depot",
-         selection="best_stg2.pth / best_stg1.pth",
-         early_stopping=f"ajoute par surveillance du journal, patience "
-                       f"{cfg.EARLY_STOP_PATIENCE}, min_delta "
-                       f"{cfg.EARLY_STOP_MIN_DELTA}"),
+         selection="best_stg1.pth (meilleur AP50-95 COCO natif)",
+         early_stopping=f"aucun (budget fixe {cfg.MAX_EPOCHS} epochs)"),
     dict(modele="YOLOX-Nano", framework="yolox", poids_init="yolox_nano.pth (COCO)",
          optimiseur="SGD + cosinus (defaut YOLOX)", lr="defaut YOLOX",
-         selection="best_ckpt.pth (meilleur AP val)",
-         early_stopping=f"ajoute par surveillance du journal, patience "
-                       f"{cfg.EARLY_STOP_PATIENCE}, min_delta "
-                       f"{cfg.EARLY_STOP_MIN_DELTA}"),
+         selection="best_ckpt.pth (meilleur AP50-95 COCO natif)",
+         early_stopping=f"aucun (budget fixe {cfg.MAX_EPOCHS} epochs)"),
 ]
 
 ULTRALYTICS_HP_KEYS = ["optimizer", "lr0", "lrf", "momentum", "weight_decay",

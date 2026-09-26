@@ -64,28 +64,21 @@ def write_exp(repo, fold, ds, out_dir):
 
 
 def train(repo, exp_py, ckpt, batch, run_dir):
-    """Lance tools/train.py sous surveillance d'early stopping.
+    """Lance tools/train.py sur tout le budget.
 
-    YOLOX n'a pas d'arret anticipe : on lit le mAP50-95 que son evaluateur
-    ecrit dans `train_log.txt` a chaque evaluation, et on met fin au processus
-    quand la patience commune est epuisee. `best_ckpt.pth` est deja sauvegarde
-    par YOLOX a chaque amelioration.
+    Aucun arret anticipe : YOLOX consomme ses `cfg.MAX_EPOCHS` epoques et
+    sauvegarde `best_ckpt.pth` a chaque amelioration de son AP de validation.
 
-    Renvoie (batch reellement utilise, surveillant).
+    Renvoie le batch reellement utilise.
     """
     # tools/train.py de YOLOX n'a pas de flag --seed : la graine passe par l'Exp.
     def build(b):
         return [sys.executable, "tools/train.py", "-f", str(exp_py),
                 "-d", "1", "-b", str(b), "--fp16", "-c", str(ckpt)]
 
-    surveillant = arret_anticipe.Surveillant(
-        cfg.EARLY_STOP_PATIENCE, cfg.EARLY_STOP_MIN_DELTA, nom=MODELE)
-    surveillance = arret_anticipe.SurveillanceJournal(
-        Path(run_dir) / "train_log.txt", arret_anticipe.lire_log_yolox, surveillant)
-
     _out, used = external.run_with_oom_retry(build, batch, cwd=repo,
-                                             surveillance=surveillance)
-    return used, surveillant
+                                             surveillance=None)
+    return used
 
 
 def predict_coco(model, exp, images, gt_json, out_json, device="cuda", batch=8):
@@ -154,7 +147,7 @@ def run_fold(fold, repo=None, commit="", install=False):
     run_dir = out_dir / f"yolox_nano_fold{fold}"
     run = bench.wandb_run(MODELE, fold, {"batch": batch})
     t0 = time.time()
-    used_batch, surveillant = train(repo, exp_py, ckpt0, batch, run_dir)
+    used_batch = train(repo, exp_py, ckpt0, batch, run_dir)
     train_time = round(time.time() - t0, 1)
     best = run_dir / "best_ckpt.pth"
     if not best.exists():
@@ -165,12 +158,21 @@ def run_fold(fold, repo=None, commit="", install=False):
     shutil.copy2(best, saved)
 
     state = torch.load(str(best), map_location="cpu", weights_only=False)
-    best_epoch = int(state.get("start_epoch", -1))
-    latest = run_dir / "latest_ckpt.pth"
-    epochs_run = -1
-    if latest.exists():
+    # Meme source que les autres runners : le journal du framework, une valeur
+    # d'AP par evaluation. Le checkpoint sert de repli si le journal manque.
+    valeurs = arret_anticipe.lire_log_yolox(run_dir / "train_log.txt")
+    if valeurs:
+        best_epoch = max(range(len(valeurs)), key=lambda i: valeurs[i]) + 1
+        epochs_run = len(valeurs)
+    else:
+        best_epoch = int(state.get("start_epoch", -1))
+        latest = run_dir / "latest_ckpt.pth"
         epochs_run = int(torch.load(str(latest), map_location="cpu",
-                                    weights_only=False).get("start_epoch", -1))
+                                    weights_only=False).get("start_epoch", -1)
+                         ) if latest.exists() else -1
+    if epochs_run != cfg.MAX_EPOCHS:
+        print(f"  ATTENTION : {epochs_run} epoques evaluees pour un budget de "
+              f"{cfg.MAX_EPOCHS} -- entrainement interrompu ?")
 
     from yolox.exp import get_exp
     exp = get_exp(str(exp_py), None)
@@ -189,7 +191,7 @@ def run_fold(fold, repo=None, commit="", install=False):
 
     row = bench.base_row(MODELE, "yolox", fold, npos, nneg,
                          best_epoch=best_epoch, epochs_run=epochs_run,
-                         stopped_early=surveillant.declenche,
+                         stopped_early=False,
                          train_time_s=train_time, latency_cpu_ms=round(lat, 3),
                          latency_std_ms=round(lat_std, 3), batch=used_batch,
                          batch_effectif=used_batch, repo_commit=commit,

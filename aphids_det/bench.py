@@ -171,9 +171,9 @@ def base_row(modele, framework, fold, npos, nneg, **extra):
         "neg_ratio": cfg.NEG_RATIO,
         "batch": batch, "grad_accum": accum, "batch_effectif": batch * accum,
         "n_pucerons_train": npos, "n_fonds_train": nneg,
-        # stopped_early = False signale que le plafond MAX_EPOCHS a ete atteint,
-        # donc qu'il est trop bas pour ce modele.
-        "best_epoch": -1, "epochs_run": -1, "stopped_early": None,
+        # stopped_early est conserve a False pour la compatibilite du CSV :
+        # le protocole est un budget fixe, aucun modele ne s'arrete en avance.
+        "best_epoch": -1, "epochs_run": -1, "stopped_early": False,
         "repo_commit": "", "versions": versions(framework), "notes": "",
     }
     row.update(extra)
@@ -208,7 +208,6 @@ def run_cv(modele, run_fold, folds=None, csv_path=None, force=False):
             print(f"  OK {modele} fold{fold} : map50={row.get('map50_macro')} "
                   f"| map50-95={row.get('map5095_macro')} "
                   f"| best_epoch={row.get('best_epoch')}/{row.get('epochs_run')} "
-                  f"| arret anticipe={row.get('stopped_early')} "
                   f"| latence_cpu={row.get('latency_cpu_ms')} ms", flush=True)
         except Exception as e:
             print(f"  ERREUR {modele} fold{fold} : {type(e).__name__}: {e}")
@@ -229,10 +228,8 @@ def wandb_run(modele, fold, config_extra=None):
         return wandb.init(project=cfg.WANDB_PROJECT, name=f"{modele}_fold{fold}",
                           reinit=True, config={"modele": modele, "fold": fold,
                                                "max_epochs": cfg.MAX_EPOCHS,
-                                               "early_stop_patience":
-                                                   cfg.EARLY_STOP_PATIENCE,
-                                               "early_stop_min_delta":
-                                                   cfg.EARLY_STOP_MIN_DELTA,
+                                               "protocole":
+                                                   "budget fixe, meilleur checkpoint",
                                                "imgsz": cfg.IMGSZ,
                                                "neg_ratio": cfg.NEG_RATIO,
                                                **(config_extra or {})})

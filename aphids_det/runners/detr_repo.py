@@ -170,11 +170,11 @@ def write_config(variant, fold, ds, out_dir, batch, work):
         "return_masks": False,
         "transforms": {"type": "Compose", "ops": new_ops},
     }
-    # Politique "stop_epoch" DESACTIVEE : repoussee au-dela du plafond, elle ne
-    # se declenche jamais. Avec un early stopping, la fin d'entrainement varie
-    # d'un modele a l'autre : une coupure d'augmentation a epoque fixe
-    # s'appliquerait de facon incoherente. L'augmentation reste donc constante
-    # sur toute la duree du run, comme chez les trois autres modeles.
+    # Politique "stop_epoch" DESACTIVEE : repoussee au-dela du budget, elle ne
+    # se declenche jamais. Elle couperait ColorJitter, ZoomOut et IoUCrop en fin
+    # d'entrainement, ce que ni RF-DETR ni les YOLO ne peuvent reproduire a
+    # l'identique. L'augmentation reste constante sur tout le budget, pour les
+    # sept modeles.
     policy = (train_dl.get("dataset", {}).get("transforms", {}) or {}).get("policy")
     if isinstance(policy, dict):
         pol = dict(policy)
@@ -254,13 +254,12 @@ def setup(variant, install=True):
 
 # ---------------------------------------------------------------- entrainement
 def train(variant, work, cfg_path, out_dir, batch):
-    """Lance le script officiel sous surveillance d'early stopping.
+    """Lance le script d'entrainement officiel, sur tout le budget.
 
-    Ces depots n'ont pas d'arret anticipe : on surveille leur `log.txt`, ecrit
-    une ligne par epoque, et on met fin au processus quand la patience commune
-    est epuisee. Le meilleur checkpoint est deja sauvegarde par le depot.
+    Aucun arret anticipe : le depot consomme ses `cfg.MAX_EPOCHS` epoques et
+    sauvegarde lui-meme son meilleur checkpoint sur sa metrique native.
 
-    Renvoie (batch reellement utilise, surveillant).
+    Renvoie le batch reellement utilise.
     """
     spec = SPECS[variant]
     tuning = external.pretrained(spec["weights"])
@@ -275,14 +274,9 @@ def train(variant, work, cfg_path, out_dir, batch):
             cmd += ["--output-dir", str(out_dir)]
         return cmd
 
-    surveillant = arret_anticipe.Surveillant(
-        cfg.EARLY_STOP_PATIENCE, cfg.EARLY_STOP_MIN_DELTA, nom=spec["modele"])
-    surveillance = arret_anticipe.SurveillanceJournal(
-        Path(out_dir) / "log.txt", arret_anticipe.lire_log_json, surveillant)
-
     _out, used = external.run_with_oom_retry(build, batch, cwd=work,
-                                             surveillance=surveillance)
-    return used, surveillant
+                                             surveillance=None)
+    return used
 
 
 def _rewrite_batch(cfg_path, batch):
@@ -297,8 +291,8 @@ def _rewrite_batch(cfg_path, batch):
 def read_log(out_dir):
     """(meilleure epoque, nb d'epoques faites) d'apres log.txt du depot.
 
-    Meme lecteur que l'early stopping (arret_anticipe.lire_log_json) : une
-    seule definition de "meilleure epoque" pour les deux usages.
+    Meme lecteur que arret_anticipe.lire_log_json, egalement utilise pour
+    departager best_stg1 et best_stg2 : une seule definition de la metrique.
     """
     valeurs = arret_anticipe.lire_log_json(Path(out_dir) / "log.txt")
     if not valeurs:
@@ -439,11 +433,13 @@ def run_fold(variant, fold, work=None, commit="", install=False):
     run = bench.wandb_run(modele, fold, {"variante": variant, "batch": batch})
 
     t0 = time.time()
-    used_batch, surveillant = train(variant, work, cfg_path, out_dir, batch)
+    used_batch = train(variant, work, cfg_path, out_dir, batch)
     train_time = round(time.time() - t0, 1)
 
     best_epoch, epochs_run = read_log(out_dir)
-    stopped_early = surveillant.declenche
+    if epochs_run != cfg.MAX_EPOCHS:
+        print(f"  ATTENTION : {epochs_run} epoques journalisees pour un budget "
+              f"de {cfg.MAX_EPOCHS} -- entrainement interrompu ?")
     ckpt = best_checkpoint(variant, out_dir, best_epoch)
     saved = Path(cfg.SAVE_DIR) / f"{modele}_fold{fold}{ckpt.suffix}"
     shutil.copy2(ckpt, saved)
@@ -462,7 +458,7 @@ def run_fold(variant, fold, work=None, commit="", install=False):
 
     row = bench.base_row(modele, spec["framework"], fold, npos, nneg,
                          best_epoch=best_epoch, epochs_run=epochs_run,
-                         stopped_early=stopped_early,
+                         stopped_early=False,
                          train_time_s=train_time, latency_cpu_ms=round(lat, 3),
                          latency_std_ms=round(lat_std, 3), batch=used_batch,
                          batch_effectif=used_batch, repo_commit=commit,

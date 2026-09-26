@@ -4,7 +4,7 @@
 Dataset au format COCO "plat" (train / valid / test), construit a partir des
 memes listes de tuiles que les autres modeles. Les hyperparametres restent ceux
 par defaut de RF-DETR ; seules les augmentations (`augment.AUG_RFDETR`), les
-epoques, le batch (8 x 4 = 32 effectif) et la patience sont imposes.
+epoques, le batch (8 x 4 = 32 effectif) et la resolution sont imposes.
 """
 
 import shutil
@@ -79,10 +79,7 @@ def run_fold(fold):
     model = RFDETRNano(resolution=cfg.IMGSZ)
     kwargs = dict(dataset_dir=str(ds), epochs=cfg.MAX_EPOCHS, batch_size=batch,
                   grad_accum_steps=accum, output_dir=str(out_dir),
-                  early_stopping=True,
-                  early_stopping_patience=cfg.EARLY_STOP_PATIENCE,
-                  early_stopping_min_delta=cfg.EARLY_STOP_MIN_DELTA,
-                  early_stopping_use_ema=True,
+                  early_stopping=False,
                   aug_config=AUG_RFDETR)
     # Couches d'echelle natives de RF-DETR (scale_jitter : branche recadrage du
     # OneOf ; multi_scale et expanded_scales : resolution variable d'un lot a
@@ -121,31 +118,41 @@ def run_fold(fold):
     best_epoch = (max(range(len(valeurs)), key=lambda i: valeurs[i]) + 1
                   if valeurs else -1)
     epochs_run = len(valeurs) if valeurs else -1
-    stopped_early = 0 < epochs_run < cfg.MAX_EPOCHS
+    stopped_early = False          # budget fixe : plus d'arret anticipe
 
-    # Poids retenus par RF-DETR (EMA si disponible)
+    # Poids retenus par RF-DETR (EMA si disponible). `BestModelCallback` est
+    # ajoute inconditionnellement par le depot : le meilleur checkpoint existe
+    # meme sans early stopping.
     saved = Path(cfg.SAVE_DIR) / f"{MODELE}_fold{fold}.pth"
+    poids_evalues = None
     for name in ("checkpoint_best_ema.pth", "checkpoint_best_total.pth",
                  "checkpoint_best_regular.pth", "checkpoint.pth"):
         src = out_dir / name
         if src.exists():
             shutil.copy2(src, saved)
+            poids_evalues = name
             break
 
     # `train()` se termine par `self.model.model = module.model` : l'objet en
     # memoire porte les poids de la DERNIERE epoque, pas le meilleur EMA. On
     # recharge donc le checkpoint sauvegarde, comme pour les autres frameworks.
-    evalue = model
-    if saved.exists():
-        try:
-            evalue = RFDETRNano.from_checkpoint(str(saved), trust_checkpoint=True)
-            print(f"  RF-DETR : evaluation sur {saved.name} (meilleur EMA)")
-        except Exception as e:
-            print(f"  RF-DETR : rechargement de {saved.name} impossible "
-                  f"({type(e).__name__}: {e}) -- evaluation sur la derniere epoque")
-    else:
-        print("  RF-DETR : aucun checkpoint sauvegarde, evaluation sur la "
-              "derniere epoque")
+    # Aucun repli : evaluer la derniere epoque produirait une ligne de resultat
+    # silencieusement incomparable aux six autres modeles. bench.run_cv attrape
+    # l'exception, marque le fold en erreur et passe au suivant.
+    if not saved.exists():
+        trouves = sorted(p.name for p in out_dir.glob("*.pth"))
+        raise FileNotFoundError(
+            f"Aucun checkpoint copie vers {saved}. Fichiers .pth presents dans "
+            f"{out_dir} : {', '.join(trouves) or 'aucun'}. L'evaluation doit "
+            f"porter sur le meilleur checkpoint EMA, pas sur la derniere epoque.")
+    try:
+        evalue = RFDETRNano.from_checkpoint(str(saved), trust_checkpoint=True)
+    except Exception as e:
+        raise RuntimeError(
+            f"Rechargement de {saved} impossible : l'evaluation doit porter sur "
+            f"le meilleur checkpoint EMA ({poids_evalues}), pas sur les poids de "
+            f"la derniere epoque laisses en memoire par train().") from e
+    print(f"  RF-DETR : evaluation sur {poids_evalues} (meilleur EMA)")
 
     gt_json = cocoify.val_gt_json(fold)
     dt_json = Path(cfg.PRED_DIR) / f"{MODELE}_fold{fold}.json"
@@ -160,11 +167,12 @@ def run_fold(fold):
                          stopped_early=stopped_early,
                          train_time_s=train_time, latency_cpu_ms=round(lat, 3),
                          latency_std_ms=round(lat_std, 3),
-                         notes=f"early stopping natif (patience {cfg.EARLY_STOP_PATIENCE}) ; "
+                         notes=f"budget fixe {cfg.MAX_EPOCHS} epochs ; "
                                f"visibilite min "
                                f"{'non applicable' if seuil is None else f'{seuil:.0%}'} ; "
                                f"couches d'echelle coupees : "
-                               f"{', '.join(coupees) or 'aucune'}",
+                               f"{', '.join(coupees) or 'aucune'} ; "
+                               f"poids evalues={poids_evalues}",
                          **stats, **metrics)
     bench.wandb_finish(run, metrics, suivi=row)
     return row

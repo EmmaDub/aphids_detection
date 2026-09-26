@@ -42,9 +42,11 @@ def build_fold_yaml(fold, neg_ratio=None):
 def _epochs_info(trainer):
     """(meilleure epoque, derniere epoque) d'un entrainement Ultralytics.
 
-    Les deux sont rendues 1-based : `trainer.epoch` et `stopper.best_epoch` sont
-    des index 0-based, la seconde etait renvoyee telle quelle et decalait
-    `best_epoch` d'une unite par rapport a `epochs_run`.
+    Les deux sont 1-based. `trainer.epoch` est un index 0-based, d'ou le +1 ;
+    `stopper.best_epoch` l'est DEJA, puisque le trainer appelle son stopper par
+    `self.stopper(epoch + 1, self.fitness)` (engine/trainer.py) et que
+    `EarlyStopping.__call__` y fait `self.best_epoch = epoch`. Lui ajouter 1 le
+    decalerait d'une unite.
 
     Le repli sur results.csv reproduit la FITNESS d'Ultralytics
     (0.9 x mAP50-95 + 0.1 x mAP50), le critere qui choisit reellement best.pt ;
@@ -60,7 +62,7 @@ def _epochs_info(trainer):
         stopper = getattr(trainer, "stopper", None)
         best = getattr(stopper, "best_epoch", None) if stopper is not None else None
     if best is not None and best >= 0:
-        return int(best) + 1, last                   # 0-based -> 1-based
+        return int(best), last                       # deja 1-based
     try:
         d = pd.read_csv(Path(trainer.save_dir) / "results.csv")
         d.columns = [c.strip() for c in d.columns]
@@ -119,12 +121,14 @@ def run_fold(modele, weights, fold):
 
     model = YOLO(weights)
     t0 = time.time()
-    # close_mosaic=0 : pas de coupure d'augmentation de fin. Avec un early
-    # stopping, la fin d'entrainement varie d'un modele a l'autre, une coupure
-    # a epoque fixe s'appliquerait de facon incoherente.
+    # close_mosaic=0 : pas de coupure d'augmentation de fin. Ce mecanisme
+    # n'existe que chez Ultralytics et YOLOX ; le garder avantagerait ces deux
+    # familles. L'augmentation reste constante sur tout le budget.
+    # patience=0 desactive l'arret anticipe : EarlyStopping fait
+    # `self.patience = patience or float("inf")` (utils/torch_utils.py).
     model.train(data=str(yml), epochs=cfg.MAX_EPOCHS, batch=batch, imgsz=cfg.IMGSZ,
                 seed=cfg.SEED, verbose=False, val=True,
-                patience=cfg.EARLY_STOP_PATIENCE, close_mosaic=0,
+                patience=0, close_mosaic=0,
                 project=PROJECT, name=f"{modele}_fold{fold}", exist_ok=True, **AUG)
     train_time = round(time.time() - t0, 1)
 
@@ -149,11 +153,13 @@ def run_fold(modele, weights, fold):
     lat, lat_std = bench.latency_cpu_ms(best)
     stats = bench.model_stats(best, saved)
 
-    # plafond atteint = l'early stopping n'a pas eu le dernier mot
-    stopped_early = 0 < epochs_run < cfg.MAX_EPOCHS
+    # budget fixe : epochs_run doit valoir cfg.MAX_EPOCHS, c'est le controle
+    if epochs_run != cfg.MAX_EPOCHS:
+        print(f"  ATTENTION : {epochs_run} epoques faites pour un budget de "
+              f"{cfg.MAX_EPOCHS} -- entrainement interrompu ?")
     return bench.base_row(modele, "ultralytics", fold, npos, nneg,
                           best_epoch=best_epoch, epochs_run=epochs_run,
-                          stopped_early=stopped_early,
+                          stopped_early=False,
                           train_time_s=train_time, latency_cpu_ms=round(lat, 3),
                           latency_std_ms=round(lat_std, 3),
                           notes=f"poids={weights} ; bloc albumentations "
